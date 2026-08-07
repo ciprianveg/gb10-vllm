@@ -1,0 +1,28 @@
+--- a/vllm/v1/attention/backends/mla/triton_mla.py
++++ b/vllm/v1/attention/backends/mla/triton_mla.py
+@@ -283,18 +283,16 @@ class TritonMLAImpl(MLACommonImpl[MLACommonMetadata]):
+         kv_c_cache = kv_c_and_k_pe_cache[..., : self.kv_lora_rank]
+         PAGE_SIZE = kv_c_and_k_pe_cache.size(1)
+ 
+         block_table = attn_metadata.decode.block_table
+         seq_lens = attn_metadata.decode.seq_lens
+-        if not attn_metadata.causal:
+-            # Non-causal DSpark block: flatten to one decode row per query token.
+-            # Each row attends to the same committed KV prefix (per-row seq_lens)
+-            # and never to sibling block tokens = non-causal block semantics.
+-            # Mirrors FlashInferMLA's non-causal path.
+-            query_len = attn_metadata.num_decode_tokens // attn_metadata.num_decodes
+-            if query_len > 1:
+-                block_table = block_table.repeat_interleave(query_len, dim=0)
+-                seq_lens = seq_lens.repeat_interleave(query_len)
++        # Expand block table and seq_lens for multi-token decode (spec decode / DSpark).
++        # When num_decode_tokens > num_decodes, each request contributes multiple
++        # query rows; repeat each request's block table row and seq_len accordingly.
++        query_len = attn_metadata.num_decode_tokens // attn_metadata.num_decodes
++        if query_len > 1:
++            block_table = block_table.repeat_interleave(query_len, dim=0)
++            seq_lens = seq_lens.repeat_interleave(query_len)
+ 
+         # Run MQA â always pass layer scales. When KV cache is
+         # BF16 the kernel's `if dtype.is_fp8()` check is a no-op.
+         decode_attention_fwd(

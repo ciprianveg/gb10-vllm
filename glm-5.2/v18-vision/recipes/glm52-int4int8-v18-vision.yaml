@@ -1,0 +1,132 @@
+# GLM-5.2 Int4-Int8Mix + Baseten MoonViT vision — TP8+PP1 on 8× GB10, v18-vision image
+#
+# (v18-prod base + 9-file overlay: CosmicRaisins adaptive MTP 2/4/5 + baseten
+# GLM-5.2 vision) with the composite glm52-quanttrio-vision model dir
+# (symlinks into the Int4-Int8 weights and the Baseten NVFP4 vision snapshot).
+# Adaptive MTP 2/4 + vision.
+#
+# Pull: docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision
+# Image: linux/arm64, built for GB10 / sm_121 — will NOT run on x86_64.
+#
+
+
+recipe_version: "1"
+name: GLM-5.2-Int4-Int8-TP8-v18-vision
+description: GLM-5.2 Int4-Int8Mix + Baseten MoonViT vision, 8× GB10, v18-vision image, adaptive MTP 2/4 + vision
+raw_entrypoint: true
+shared_weights_nfs: false
+cluster_only: true
+
+# Prebuilt v18-vision image from GHCR (overlay baked in — no runtime mod step needed)
+container: ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision
+
+# Composite model dir — symlinks into GLM-5.2-Int4-Int8 and baseten-GLM-5.2-Vision-NVFP4.
+# The manage script bind-mounts all three dirs read-only so symlinks resolve in-container.
+model: /root/models/glm52-quanttrio-vision
+
+# Environment — v18 stack + adaptive MTP / DCP instrumentation
+env:
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+  # v18 image has NCCL at /opt/libnccl.so.2.30.4 (built in, not external mount)
+  LD_PRELOAD: /opt/libnccl-local-inference.so.2.30.4
+  HF_HOME: /cache/huggingface
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+  VLLM_SPARSE_INDEXER_MAX_LOGITS_MB: "256"
+
+  # V2 runner + B12X sparse indexer (required for B12X_MLA_SPARSE)
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  VLLM_USE_B12X_SPARSE_INDEXER: "1"
+  GLM52_BIND_HOST_TRITON: "0"
+  VLLM_B12X_MLA_SPEC_EXTEND_AS_DECODE: "1"
+
+  TORCH_CUDA_ARCH_LIST: "12.1a"
+  NCCL_NET: IB
+  NCCL_IB_DISABLE: "0"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_CROSS_NIC: "1"
+  NCCL_CUMEM_ENABLE: "0"
+  NCCL_IGNORE_CPU_AFFINITY: "1"
+  NCCL_DEBUG: WARN
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  OMP_NUM_THREADS: 8
+
+  VLLM_USE_RAY_V2_EXECUTOR_BACKEND: "1"
+  VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: "1"
+  RAY_CGRAPH_get_timeout: "1800"
+
+  # Stability + KV cache gains
+  RAY_memory_monitor_refresh_ms: "0"
+  VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "0"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_BUFFSIZE: "16777216"
+
+  TORCH_EXTENSIONS_DIR: /cache/huggingface/torch_extensions
+  TORCHINDUCTOR_CACHE_DIR: /cache/huggingface/torchinductor-cache
+  TRITON_CACHE_DIR: /cache/huggingface/triton-cache
+  XDG_CACHE_HOME: /cache/huggingface
+  B12X_CUTE_COMPILE_CACHE_DIR: /root/.cache/huggingface/b12x/cute_compile
+  B12X_LOG_CUTE_COMPILES_AFTER_ENGINE_START: "0"
+
+  CUTE_DSL_ARCH: "sm_121a"
+  NCCL_MAX_NCHANNELS: "4"
+  NCCL_MIN_NCHANNELS: "4"
+
+  # v18 DCP fast-path (auto-enabled for TP8/DCP4+, disabled for DCP1)
+  VLLM_DCP_QUERY_SPLIT: "0"
+  VLLM_B12X_MLA_CKV_GATHER: "1"
+
+  # Adaptive MTP 2/4 instrumentation (VLLM_DCP_GLOBAL_TOPK / VLLM_DCP_SHARD_DRAFT
+  # are intentionally NOT set — those are DCP>=2 specific and zero the speculator
+  # decode_query_len at DCP=1, causing ZeroDivisionError in CUDAGraph init).
+  VLLM_ADAPTIVE_SPEC_DEPTHS: "2,4"
+  VLLM_MTP_INSTRUMENT: "1"
+  VLLM_MTP_INSTRUMENT_WINDOW: "32"
+
+# No mods section — all production mods are baked into the v18-prod base image
+# and the 9-file vision/adaptive-MTP overlay is baked into v18-vision.
+
+# First-boot conservative profile (CR-validated for vision+adaptive-MTP).
+# max-model-len 550000 + gpu-mem-util 0.79 trades some KV cache headroom for
+# longer vision contexts. To approach v18-prod text-only throughput, reduce
+# max-model-len toward 410000 and revisit gpu-memory-utilization — but validate
+# adaptive-MTP acceptance first.
+command: |
+  vllm serve /root/models/glm52-quanttrio-vision \
+    --served-model-name GLM-5.2-Int4-Int8-Vision \
+    --served-model-name GLM-5.2-Int4-Int8 \
+    --host 0.0.0.0 --port 5001 \
+    --trust-remote-code \
+    --reasoning-parser glm45 \
+    --tool-call-parser glm47 \
+    --enable-auto-tool-choice \
+    --enable-chunked-prefill \
+    --enable-prefix-caching \
+    --async-scheduling \
+    --tensor-parallel-size 8 \
+    --pipeline-parallel-size 1 \
+    --decode-context-parallel-size 1 \
+    --dcp-kv-cache-interleave-size 1 \
+    --attention-backend B12X_MLA_SPARSE \
+    --hf-overrides '{{"index_topk_pattern":"FFFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSS"}}' \
+    --max-model-len 550000 \
+    --max-num-seqs 5 \
+    --max-num-batched-tokens 4096 \
+    --long-prefill-token-threshold 2048 \
+    --enable-decode-aware-prefill \
+    --decode-prefill-token-budget 512 \
+    --idle-prefill-token-budget 16384 \
+    --max-long-prefills-per-step 1 \
+    --gpu-memory-utilization 0.79 \
+    --kv-cache-dtype fp8_ds_mla \
+    --distributed-executor-backend ray \
+    --compilation-config '{{"cudagraph_mode":"FULL","max_cudagraph_capture_size":16}}' \
+    --generation-config vllm \
+    --default-chat-template-kwargs '{{"reasoning_effort":"high", "clear_thinking": false}}' \
+    --speculative-config '{{"model":"/root/models/GLM-5.2-Int4-Int8","method":"mtp","quantization":"compressed-tensors","draft_attention_backend":"B12X_MLA_SPARSE","num_speculative_tokens":4,"draft_sample_method":"probabilistic","adaptive_speculative_tokens_window":32,"draft_tensor_parallel_size":1}}' \
+    --limit-mm-per-prompt '{{"image":4,"video":0}}' \
+    --mm-processor-cache-gb 0 \
+    --mm-encoder-tp-mode weights \
+    --seed 42

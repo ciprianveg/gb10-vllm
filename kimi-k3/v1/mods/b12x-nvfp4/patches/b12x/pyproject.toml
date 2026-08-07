@@ -1,0 +1,52 @@
+[project]
+name = "b12x"
+version = "0.15.3"
+description = "Unapologetically SM120-only CuTe DSL kernels for NVFP4 GEMM and MoE."
+readme = "README.md"
+requires-python = ">=3.10,<4.0"
+authors = [{ name = "Luke" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+  "torch>=2.10.0",
+  "cuda-python",
+  "nvidia-cutlass-dsl>=4.5.0",
+  "nvidia-cutlass-dsl-libs-base>=4.5.0",
+  "nvidia-cutlass-dsl-libs-cu13>=4.5.0",
+  "apache-tvm-ffi>=0.1.6,!=0.1.8,!=0.1.8.post0,<0.2",
+  "rich>=13",
+  "transformers>=4.51",
+  "safetensors>=0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[build-system]
+requires = ["setuptools>=77", "packaging>=24"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["b12x*"]
+
+[tool.setuptools.package-data]
+"b12x.distributed" = ["*.cu"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "SIM"]
+ignore = [
+  "E402",
+  "E501",
+  "E741",
+  "SIM102",
+  "SIM108",
+  "SIM118",
+  "B019",
+  "B020",
+  "B023",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]

@@ -1,0 +1,43 @@
+# Build artifacts
+*.log
+*.whl
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Environment
+.env
+.env.local
+
+# Weights (large, not tracked)
+/models/
+/weights/
+*.safetensors
+*.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Personal — not for public repo
+posts-v18-announcement.txt
+
+# Patches tracked in v16/patches/
+# DSpark recipes tracked in v18/recipes/
+v18-vision/posts/

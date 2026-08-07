@@ -1,0 +1,106 @@
+diff --git a/vllm/config/scheduler.py b/vllm/config/scheduler.py
+index 1858e5e..1cecb98 100644
+--- a/vllm/config/scheduler.py
++++ b/vllm/config/scheduler.py
+@@ -81,6 +81,26 @@ class SchedulerConfig:
+     """For chunked prefill, a request is considered long if the prompt is
+     longer than this number of tokens."""
+ 
++    enable_decode_aware_prefill: bool = False
++    """Dynamically limit aggregate prefill work while decode requests are
++    active. This protects decode latency without reducing idle prefill
++    throughput."""
++
++    decode_prefill_token_budget: int = Field(default=1024, ge=1)
++    """Maximum aggregate prefill tokens scheduled in an iteration that starts
++    with at least one active decode request. Effective only when
++    ``enable_decode_aware_prefill`` is enabled."""
++
++    idle_prefill_token_budget: int = Field(default=16384, ge=1)
++    """Maximum aggregate prefill tokens scheduled in an iteration without an
++    active decode request. The effective value is capped by
++    ``max_num_scheduled_tokens``."""
++
++    max_long_prefills_per_step: int = Field(default=1, ge=1)
++    """Maximum number of long prefill requests scheduled per iteration when
++    decode-aware prefill scheduling is enabled. Long requests are selected by
++    least-recently-scheduled age."""
++
+     enable_chunked_prefill: bool = True
+     """If True, prefill requests can be chunked based
+     on the remaining `max_num_batched_tokens`.
+@@ -267,6 +287,25 @@ class SchedulerConfig:
+                 self.long_prefill_token_threshold,
+             )
+ 
++        if self.enable_decode_aware_prefill:
++            if not self.enable_chunked_prefill:
++                raise ValueError(
++                    "Decode-aware prefill scheduling requires chunked prefill."
++                )
++            if self.long_prefill_token_threshold <= 0:
++                raise ValueError(
++                    "Decode-aware prefill scheduling requires a positive "
++                    "long_prefill_token_threshold."
++                )
++            logger.info(
++                "Decode-aware prefill scheduling enabled with "
++                "decode_prefill_token_budget=%d, idle_prefill_token_budget=%d, "
++                "max_long_prefills_per_step=%d",
++                self.decode_prefill_token_budget,
++                self.idle_prefill_token_budget,
++                self.max_long_prefills_per_step,
++            )
++
+         self.verify_max_model_len(max_model_len)
+ 
+     def verify_max_model_len(self, max_model_len: int) -> Self:
+diff --git a/vllm/engine/arg_utils.py b/vllm/engine/arg_utils.py
+index d1a98ae..6cd6c71 100644
+--- a/vllm/engine/arg_utils.py
++++ b/vllm/engine/arg_utils.py
+@@ -526,6 +526,10 @@ class EngineArgs:
+     max_num_partial_prefills: int = SchedulerConfig.max_num_partial_prefills
+     max_long_partial_prefills: int = SchedulerConfig.max_long_partial_prefills
+     long_prefill_token_threshold: int = SchedulerConfig.long_prefill_token_threshold
++    enable_decode_aware_prefill: bool = SchedulerConfig.enable_decode_aware_prefill
++    decode_prefill_token_budget: int = SchedulerConfig.decode_prefill_token_budget
++    idle_prefill_token_budget: int = SchedulerConfig.idle_prefill_token_budget
++    max_long_prefills_per_step: int = SchedulerConfig.max_long_prefills_per_step
+     max_num_seqs: int | None = None
+     max_logprobs: int = ModelConfig.max_logprobs
+     logprobs_mode: LogprobsMode = ModelConfig.logprobs_mode
+@@ -1414,6 +1418,22 @@ class EngineArgs:
+             "--long-prefill-token-threshold",
+             **scheduler_kwargs["long_prefill_token_threshold"],
+         )
++        scheduler_group.add_argument(
++            "--enable-decode-aware-prefill",
++            **scheduler_kwargs["enable_decode_aware_prefill"],
++        )
++        scheduler_group.add_argument(
++            "--decode-prefill-token-budget",
++            **scheduler_kwargs["decode_prefill_token_budget"],
++        )
++        scheduler_group.add_argument(
++            "--idle-prefill-token-budget",
++            **scheduler_kwargs["idle_prefill_token_budget"],
++        )
++        scheduler_group.add_argument(
++            "--max-long-prefills-per-step",
++            **scheduler_kwargs["max_long_prefills_per_step"],
++        )
+         # multi-step scheduling has been removed; corresponding arguments
+         # are no longer supported.
+         scheduler_group.add_argument(
+@@ -2128,6 +2148,10 @@ class EngineArgs:
+             max_num_partial_prefills=self.max_num_partial_prefills,
+             max_long_partial_prefills=self.max_long_partial_prefills,
+             long_prefill_token_threshold=self.long_prefill_token_threshold,
++            enable_decode_aware_prefill=self.enable_decode_aware_prefill,
++            decode_prefill_token_budget=self.decode_prefill_token_budget,
++            idle_prefill_token_budget=self.idle_prefill_token_budget,
++            max_long_prefills_per_step=self.max_long_prefills_per_step,
+             scheduler_reserve_full_isl=self.scheduler_reserve_full_isl,
+             watermark=self.watermark,
+             prefill_schedule_interval=self.prefill_schedule_interval,

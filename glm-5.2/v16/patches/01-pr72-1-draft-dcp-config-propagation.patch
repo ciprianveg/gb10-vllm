@@ -1,0 +1,35 @@
+diff --git a/vllm/v1/spec_decode/llm_base_proposer.py b/vllm/v1/spec_decode/llm_base_proposer.py
+index 09e15c7b2..9a50c4c8d 100644
+--- a/vllm/v1/spec_decode/llm_base_proposer.py
++++ b/vllm/v1/spec_decode/llm_base_proposer.py
+@@ -1332,10 +1332,29 @@ class SpecDecodeBaseProposer:
+         Subclasses may override to apply additional config changes.
+         """
+         spec_cfg = self.speculative_config
++        draft_parallel_config = spec_cfg.draft_parallel_config
++        # create_draft_parallel_config() does not copy
++        # decode_context_parallel_size from the target, so the draft
++        # attention silently runs with dcp=1 (no q-allgather, no LSE merge)
++        # while its KV/metadata use DCP-local sharded semantics. The V2
++        # runner path (gpu/spec_decode/eagle/utils.py) restores the target
++        # DCP for native MTP drafts; mirror that here for the V1 path.
++        import os as _os
++
++        default_shard_draft = "1" if spec_cfg.method == "mtp" else "0"
++        if _os.environ.get(
++            "VLLM_DCP_SHARD_DRAFT", default_shard_draft
++        ).lower() in ("1", "true", "yes"):
++            draft_parallel_config = replace(
++                draft_parallel_config,
++                decode_context_parallel_size=(
++                    self.vllm_config.parallel_config.decode_context_parallel_size
++                ),
++            )
+         config = replace(
+             self.vllm_config,
+             parallel_config=replace(
+-                spec_cfg.draft_parallel_config,
++                draft_parallel_config,
+                 rank=self.vllm_config.parallel_config.rank,
+             ),
+             model_config=spec_cfg.draft_model_config,

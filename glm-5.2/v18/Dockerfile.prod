@@ -1,0 +1,60 @@
+# Dockerfile.prod — v18 production image with runtime mods baked in
+#
+# Builds FROM the base image (v18/Dockerfile output) and applies the
+# production mod set as build-time RUN steps. The mods are idempotent
+# file patches with "already applied" guards, so baking them in is safe.
+#
+# Result: a zero-config production image — no run.sh steps needed at deploy.
+# The base image (v18/Dockerfile) remains the canonical, mod-free artifact
+# for users who want to customize which mods to apply.
+#
+# Build (after the base image exists locally):
+#   docker build -f v18/Dockerfile.prod \
+#     --build-arg BASE_IMAGE=vllm-node-tf5-glm52-v18:latest \
+#     -t ghcr.io/ciprianveg/gb10-glm-5.2:v18-prod .
+#
+# Or via build.sh:
+#   ./v18/build.sh --solo --push-prod
+
+ARG BASE_IMAGE=vllm-node-tf5-glm52-v18:latest
+
+FROM ${BASE_IMAGE}
+
+# `patch` is needed by decode-aware-scheduler's config_args.patch; the
+# runtime base may not include it.
+RUN apt-get update && apt-get install -y --no-install-recommends patch \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the full mods/ tree so each run.sh can resolve its sibling files
+# (config_args.patch, apply_*.py) via $SCRIPT_DIR.
+COPY v18/mods /opt/mods
+RUN chmod +x /opt/mods/*/run.sh /opt/mods/*/apply_*.py 2>/dev/null || true
+
+# Apply mods in recipe order (see v18/recipes/*.yaml):
+#   1. fix-v18-venv-paths  — symlink /opt/venv -> dist-packages (MUST be first)
+#   2. fix-mtp-quant-packed-mapping — fused_qkv_a_proj + gate_up_proj quant mapping
+#   3. fix-dsa-block-table-dim — off-by-one in expanded_block_table_buffer
+#   4. fix-fsm-toolcall-v18 — PR #44993 FSM should_advance(new_token_ids)
+#   5. fix-b12x-cute-cache-key — B12X PR #41 deterministic CuTe DSL cache keys
+#   6. decode-aware-scheduler — penguinchang decode-aware prefill scheduler
+#   7. fix-v16-b12x-stale-topk — stale topk_indices_buffer (defensive on v18)
+RUN /opt/mods/fix-v18-venv-paths/run.sh \
+ && /opt/mods/fix-mtp-quant-packed-mapping/run.sh \
+ && /opt/mods/fix-dsa-block-table-dim/run.sh \
+ && /opt/mods/fix-fsm-toolcall-v18/run.sh \
+ && /opt/mods/fix-b12x-cute-cache-key/run.sh \
+ && /opt/mods/decode-aware-scheduler/run.sh \
+ && /opt/mods/fix-v16-b12x-stale-topk/run.sh \
+ && rm -rf /opt/mods
+
+# OCI provenance labels (prod variant)
+LABEL org.opencontainers.image.source="https://github.com/ciprianveg/gb10-glm-5.2"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="gb10-glm-5.2 v18 (prod)"
+LABEL org.opencontainers.image.description="GLM-5.2-Int4-Int8Mix on 8× DGX Spark (GB10, sm_121), TP8+PP1, MTP k=4 — compiled stack + production runtime mods baked in"
+LABEL org.opencontainers.image.authors="ciprian"
+LABEL org.opencontainers.image.url="https://github.com/ciprianveg/gb10-glm-5.2/blob/master/ATTRIBUTION.md"
+LABEL org.opencontainers.image.version="v18-prod"
+
+ENTRYPOINT ["vllm"]
+CMD ["serve", "--help"]

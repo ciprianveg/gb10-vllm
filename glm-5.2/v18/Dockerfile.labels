@@ -1,0 +1,16 @@
+# Dockerfile.labels — thin wrapper to add OCI provenance labels to the
+# pre-built base image without rebuilding from source.
+#
+# Build:
+#   docker build -f v18/Dockerfile.labels \
+#     --build-arg BASE_IMAGE=vllm-node-tf5-glm52-v18:latest \
+#     -t ghcr.io/ciprianveg/gb10-glm-5.2:v18-base .
+ARG BASE_IMAGE=vllm-node-tf5-glm52-v18:latest
+FROM ${BASE_IMAGE}
+LABEL org.opencontainers.image.source="https://github.com/ciprianveg/gb10-glm-5.2"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="gb10-glm-5.2 v18 (base)"
+LABEL org.opencontainers.image.description="GLM-5.2-Int4-Int8Mix on 8× DGX Spark (GB10, sm_121), TP8+PP1, MTP k=4 — compiled stack, no runtime mods"
+LABEL org.opencontainers.image.authors="ciprian"
+LABEL org.opencontainers.image.url="https://github.com/ciprianveg/gb10-glm-5.2/blob/master/ATTRIBUTION.md"
+LABEL org.opencontainers.image.version="v18-base"

@@ -1,0 +1,87 @@
+recipe_version: "1"
+name: kimi-k3-full-hh-b12x-tp16
+description: KIMI-K3 Full B12X + TP16 + DSpark, 16× GB10 sm121
+raw_entrypoint: true
+shared_weights_nfs: true
+cluster_only: true
+
+container: vllm-node-kimi3-hh
+
+model: /root/models/models115/Kimi-K3
+
+defaults:
+  model_path: /root/models/models115/Kimi-K3
+  draft_model_path: /root/models/models16/K3-DSpark-Inferact
+
+mods: [mods/fix-gb10-mla-smem, mods/fix-flashinfer-mla-sm121, mods/fix-k3-fp8-triton-mla, mods/fix-k3-ep-intermediate-padding, mods/fix-k3-dspark-warmup, mods/fix-mla-spec-decode-block-table, mods/fix-dspark-fused-kv, mods/fix-dspark-pp2-aux-forward, mods/fix-k3-flash-kda-prefill, mods/fix-k3-dspark-perf-unified]
+
+env:
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+  HF_HOME: /cache/huggingface
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+
+  TORCH_CUDA_ARCH_LIST: "12.1a"
+  CUTE_DSL_ARCH: "sm_121a"
+
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  VLLM_KIMI_K3_SHARD_SP_SHARED_EXPERT: "1"
+  VLLM_KIMI_K3_B12X_DSPARK_ARGMAX: "1"
+  VLLM_DSPARK_PREFER_B12X_ALLREDUCE_RMS: "1"
+  VLLM_KIMI_PRELAUNCH_SHARED_EXPERTS: "1"
+  VLLM_KIMI_USE_B12X_BATCHED_PROJECTION_TOPK: "1"
+  VLLM_B12X_MLA_SPEC_EXTEND_AS_DECODE: "1"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+  NCCL_NET: IB
+  NCCL_IB_DISABLE: "0"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_CROSS_NIC: "1"
+  NCCL_CUMEM_ENABLE: "0"
+  NCCL_IGNORE_CPU_AFFINITY: "1"
+  NCCL_DEBUG: WARN
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_BUFFSIZE: "16777216"
+  NCCL_MAX_NCHANNELS: "8"
+  NCCL_MIN_NCHANNELS: "8"
+  NCCL_ALGO: "Ring"
+  NCCL_PROTO: "Simple"
+  OMP_NUM_THREADS: "8"
+
+  VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: "1"
+  RAY_CGRAPH_get_timeout: "1800"
+  RAY_memory_monitor_refresh_ms: "0"
+
+  TORCH_EXTENSIONS_DIR: /cache/huggingface/torch_extensions
+  TORCHINDUCTOR_CACHE_DIR: /cache/huggingface/torchinductor-cache
+  TRITON_CACHE_DIR: /cache/huggingface/triton-cache
+  XDG_CACHE_HOME: /cache/huggingface
+
+command: |
+  vllm serve {model_path} \
+    --served-model-name KIMI-K3-FULL-B12X-TP16 \
+    --attention-backend B12X_MLA \
+    --tensor-parallel-size 16 \
+    --pipeline-parallel-size 1 \
+    --distributed-executor-backend ray \
+    --disable-custom-all-reduce \
+    --moe-backend marlin \
+    --enable-expert-parallel \
+    --kv-cache-dtype fp8 \
+    --load-format instanttensor \
+    --gpu-memory-utilization 0.86 \
+    --max-model-len auto \
+    --host 0.0.0.0 --port 5002 \
+    --trust-remote-code \
+    --max-num-batched-tokens 2048 \
+    --max-num-seqs 4 \
+    --max-cudagraph-capture-size 32 \
+    --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":7,"draft_tensor_parallel_size":1,"draft_sample_method":"greedy","attention_backend":"B12X_MLA"}}' \
+    --reasoning-parser kimi_k3 \
+    --tool-call-parser kimi_k3 \
+    --enable-auto-tool-choice \
+    --generation-config vllm \
+    --limit-mm-per-prompt '{{"image":2,"video":0}}'

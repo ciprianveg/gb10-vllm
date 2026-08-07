@@ -1,0 +1,104 @@
+"""Paged-KV self-attention for SM12x (decode + extend/prefill).
+
+FA2-style paged attention: BF16/FP16 queries, BF16/FP16/FP8-e4m3 KV cache
+(FP8 KV needs BF16 queries + k/v descales), any head_dim multiple of 16,
+attention sinks, sliding window, and an MSA block-sparse variant driven by
+``q2k_indices``. The planner owns tile/split-KV/chunk policy; integrations
+supply tensors, shape metadata, and capacity caps (``Budget``). Decode
+supports CUDA-graph replay with all metadata rebuilt on-device.
+
+Planned lifecycle: ``plan(Caps(...))`` sizes the caller-owned scratch;
+``bind`` maps allocation-free views; ``compile`` resolves the selected entries
+without launching; ``run`` launches (capture safe).
+``Workspace`` is the preplanned arena alternative for workspace-style
+serving.
+
+Example:
+    from sparkinfer.attention import paged
+
+    plan    = paged.plan(paged.Caps(mode="decode", dtype=torch.bfloat16, ...))
+    spec    = plan.scratch_specs()[0]
+    scratch = torch.empty(spec.shape, dtype=spec.dtype, device=spec.device)
+    binding = paged.bind(plan, scratch=scratch, q=q, k_cache=k, v_cache=v,
+                         output=out, page_table=pt, cache_seqlens=lens,
+                         cu_seqlens_q=cu_q)
+    out, lse = paged.run(binding=binding)
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..._lib.meta import OpMeta, Provenance, install_lazy_api
+
+META = OpMeta(
+    name="paged",
+    group="attention",
+    api_style="planned",
+    entry_points=(
+        "Caps",
+        "Plan",
+        "Binding",
+        "Workspace",
+        "Budget",
+        "DecodeGraphCapacity",
+        "ExtendGraphCapacity",
+        "VerifyGraphCapacity",
+        "DecodeGraphScratchEnvelope",
+        "decode_graph_capacity",
+        "extend_graph_capacity",
+        "verify_graph_capacity",
+        "decode_graph_scratch_envelope",
+        "plan",
+        "bind",
+        "compile",
+        "run",
+        "infer_mode",
+        "is_supported",
+        "clear_caches",
+    ),
+    dtypes=("bf16", "fp16", "fp8_e4m3"),
+    recipes=("dense", "msa_block_sparse"),
+    requires=("triton",),
+    provenance=Provenance(
+        repo="https://github.com/lukealonso/sparkinfer",
+        commit="6627d342",
+        paths=(
+            "sparkinfer/attention/paged/",
+            "sparkinfer/integration/paged_attention_scratch.py",
+        ),
+    ),
+    test_path="tests/attention/test_paged.py",
+    since="0.7.0",
+    notes=(
+        "Decode CUDA-graph replay uses fixed preplanned capacity and rebuilds "
+        "live schedules on-device; in-tree tests cover split, direct, MSA, "
+        "multi-query-tile, shared-scratch, and high-page-id replay."
+    ),
+)
+
+if TYPE_CHECKING:  # static analysis only; runtime resolution is lazy
+    from .api import (  # noqa: F401
+        Binding,
+        Budget,
+        Caps,
+        DecodeGraphCapacity,
+        ExtendGraphCapacity,
+        VerifyGraphCapacity,
+        DecodeGraphScratchEnvelope,
+        Plan,
+        Workspace,
+        bind,
+        clear_caches,
+        compile,
+        decode_graph_capacity,
+        extend_graph_capacity,
+        verify_graph_capacity,
+        decode_graph_scratch_envelope,
+        infer_mode,
+        is_supported,
+        plan,
+        run,
+    )
+
+install_lazy_api(globals(), META)

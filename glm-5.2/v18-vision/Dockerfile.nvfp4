@@ -1,0 +1,102 @@
+# Dockerfile.nvfp4 — rebuild vLLM in-place on v18-vision to enable native SM121 cubins + NVFP4 KV-cache capability
+#
+# Path B (matches the ciprianveg v18-vision NVFP4 writeup):
+#   - CUDA_SUPPORTED_ARCHS (CUDA 13.x branch): add 12.1 so 12.1a is not clamped to 12.0
+#   - FP4_SM120_ARCHS: revert the "99.0f" disable hack -> "12.0f" family match
+#   - Rebuild vLLM with TORCH_CUDA_ARCH_LIST=12.1a, CMAKE_CUDA_ARCHITECTURES=121
+#   - Result: native sm_121 NVFP4 MLA KV-cache kernels (concat_and_cache_nvfp4_mla, etc.)
+#
+# The base image already contains: nvcc, g++, cmake, and the vLLM source at /opt/vllm
+# (gilded-gnosis-v18-final @ 264bce1d, .git stripped). Only vLLM's compiled extensions
+# are rebuilt; CUDA / NVIDIA libs / the 9-file vision overlay are untouched.
+#
+# IMPORTANT: a full `pip install --force-reinstall` of the rebuilt wheel would overwrite
+# the v18-vision overlay .py files (registry.py, scheduler.py, glm5v.py, ...) with the
+# base v18 source. So we extract ONLY the rebuilt *.so extensions and lay them over the
+# existing installed package, preserving the vision + adaptive-MTP overlay exactly.
+#
+# Build (after v18-vision exists locally):
+#   docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision
+#   ./v18-vision/build-nvfp4.sh            # build only (local tag)
+#   ./v18-vision/build-nvfp4.sh --push     # build + push to GHCR (requires approval)
+#
+# Image: linux/arm64, GB10 / sm_121 — will NOT run on x86_64.
+
+ARG BASE_IMAGE=ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision
+
+FROM ${BASE_IMAGE}
+
+ARG VLLM_SRC=/opt/vllm
+ARG VLLM_SITE=/opt/venv/lib/python3.12/site-packages/vllm
+ARG TORCH_CUDA_ARCH_LIST=12.1a
+ARG CMAKE_CUDA_ARCHITECTURES=121
+ARG BUILD_JOBS=12
+
+# ── 1) CMakeLists.txt: add 12.1 to the CUDA 13.x CUDA_SUPPORTED_ARCHS list ─────────
+#    (without this, 12.1a is clamped down to 12.0 before the FP4 family match runs)
+RUN sed -i 's|set(CUDA_SUPPORTED_ARCHS "7.5;8.0;8.6;8.7;8.9;9.0;10.0;11.0;12.0")|set(CUDA_SUPPORTED_ARCHS "7.5;8.0;8.6;8.7;8.9;9.0;10.0;11.0;12.0;12.1")|' \
+      ${VLLM_SRC}/CMakeLists.txt
+
+# ── 2) CMakeLists.txt: revert the FP4_SM120_ARCHS "99.0f" disable hack ────────────
+#    "12.0f" family-matches 12.1a -> FP4_SM120_ARCHS=12.1a -> native sm_121 NVFP4 kernels
+RUN sed -i 's|cuda_archs_loose_intersection(FP4_SM120_ARCHS "99.0f" "${CUDA_ARCHS}")|cuda_archs_loose_intersection(FP4_SM120_ARCHS "12.0f" "${CUDA_ARCHS}")|' \
+      ${VLLM_SRC}/CMakeLists.txt
+
+# ── 3) Sanity: both patches applied exactly once ──────────────────────────────────
+RUN grep -q 'set(CUDA_SUPPORTED_ARCHS "7.5;8.0;8.6;8.7;8.9;9.0;10.0;11.0;12.0;12.1")' ${VLLM_SRC}/CMakeLists.txt && \
+    ! grep -q 'FP4_SM120_ARCHS "99.0f"' ${VLLM_SRC}/CMakeLists.txt && \
+    grep -q 'FP4_SM120_ARCHS "12.0f"' ${VLLM_SRC}/CMakeLists.txt
+
+# ── 4) Rebuild the vLLM wheel with native sm_121 + NVFP4 SM12x kernels ────────────
+#    --no-build-isolation: use the torch/setuptools already installed in the image
+#    (avoids re-fetching torch from PyPI; image has no .git so pretend the version).
+RUN cd ${VLLM_SRC} && \
+    SETUPTOOLS_SCM_PRETEND_VERSION="0.9.2.dev0+gildedgnosis" \
+    MAX_JOBS=${BUILD_JOBS} \
+    VLLM_MAX_JOBS=${BUILD_JOBS} \
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
+    CMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES} \
+    NVCC_THREADS=1 \
+    python3 -m pip wheel --no-deps --no-build-isolation -w /wheels . --verbose
+
+# ── 5) Surgically replace ONLY the rebuilt *.so extensions ───────────────────────
+#    Preserves the v18-vision overlay .py files (vision + adaptive MTP 2/4/5).
+#    Uses `python3 -m zipfile -e` for extraction (the runtime image has no `unzip`).
+#    Base for the copy is the site-packages dir (NOT the vllm package dir) so the
+#    wheel's `vllm/x.so` paths land at site-packages/vllm/x.so, overwriting in place.
+RUN set -e && \
+    whl=$(ls /wheels/*.whl | head -1) && \
+    site_pkgs="$(dirname "${VLLM_SITE}")" && \
+    rm -rf /tmp/whelextract && mkdir -p /tmp/whelextract && \
+    python3 -m zipfile -e "$whl" /tmp/whelextract && \
+    cd /tmp/whelextract && \
+    find . -name '*.so' -type f | while read -r so; do \
+      rel="$(dirname "$so")"; \
+      dest="${site_pkgs}/${rel#./}"; \
+      mkdir -p "$dest" && cp -f "$so" "$dest/"; \
+    done && \
+    rm -rf /tmp/whelextract /wheels
+
+# ── 6) Verify native sm_121 + NVFP4 cubins are present ───────────────────────────
+RUN so=${VLLM_SITE}/_C_stable_libtorch.abi3.so && \
+    echo "sm_121 cubins: $(cuobjdump --list-elf "$so" 2>/dev/null | grep -c sm_121)" && \
+    echo "sm_120 cubins: $(cuobjdump --list-elf "$so" 2>/dev/null | grep -c sm_120)" && \
+    test "$(cuobjdump --list-elf "$so" 2>/dev/null | grep -c sm_121)" -gt 0
+
+# ── 7) Confirm the vision overlay .py files survived the wheel rebuild ───────────
+RUN test -f ${VLLM_SITE}/model_executor/models/glm5v.py && \
+    test -f ${VLLM_SITE}/v1/spec_decode/dynamic/acceptance_length.py && \
+    echo "vision + adaptive-MTP overlay intact"
+
+# ── OCI provenance labels ────────────────────────────────────────────────────────
+LABEL org.opencontainers.image.source="https://github.com/ciprianveg/gb10-glm-5.2"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="gb10-glm-5.2 v18.1-vision (native SM121 cubins + NVFP4 KV-cache capability)"
+LABEL org.opencontainers.image.description="v18-vision + in-place vLLM rebuild with native sm_121 NVFP4 MLA KV-cache kernels (CUDA_SUPPORTED_ARCHS+=12.1, FP4_SM120_ARCHS=12.0f). Vision + adaptive MTP overlay preserved."
+LABEL org.opencontainers.image.authors="ciprian"
+LABEL org.opencontainers.image.version="v18.1-vision"
+LABEL org.opencontainers.image.base.name="ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision"
+LABEL gb10-glm-5.2.nvfp4="native SM121 cubins + NVFP4 KV-cache capability — Path B: CUDA 13.x arch-list +=12.1, FP4_SM120_ARCHS 99.0f->12.0f, rebuild @ 12.1a/121"
+
+ENTRYPOINT ["vllm"]
+CMD ["serve", "--help"]
