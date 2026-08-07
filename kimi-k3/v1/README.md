@@ -1,10 +1,19 @@
 # KIMI-K3 B12X_MLA + DSpark on 16× GB10 DGX Spark
 
-Full KIMI-K3 (BF16 attention + MXFP4 experts) served with **B12X_MLA** attention (CuTe DSL
-`dense_mla` via sparkinfer) + **DSpark** speculative decoding on 16-node DGX Spark GB10
-(sm121) clusters, single-node TP16 or TP8+PP2.
+Full [Kimi-K3](https://huggingface.co/moonshotai/Kimi-K3) (BF16 attention + MXFP4 experts)
+served with **B12X_MLA** attention (CuTe DSL `dense_mla` via sparkinfer) + **DSpark**
+speculative decoding (draft: [Inferact/Kimi-K3-DSpark](https://huggingface.co/Inferact/Kimi-K3-DSpark))
+on 16-node DGX Spark GB10 (sm121) clusters, TP16 or the recommended TP8+PP2.
 
 Image: `vllm-node-kimi3-hh` (linux/arm64, sm121).
+
+## Recommended path: TP8+PP2
+
+**Use the PP2 recipe for real workloads.** TP8+PP2 fits **~800K context** and is the layout to
+follow with this model. The TP16 path is **too tight on 16× GB10 for this model to be usable
+for coding** — it fits only ~200K because KIMI-K3's 640K+ effective window (~378K built-in +
+sliding window) exceeds what 16 single-rank KV caches can hold. Start your deployment from
+[`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml).
 
 ## What this is
 
@@ -20,16 +29,29 @@ provides the `B12X_MLA` dense-MLA attention backend), and serves KIMI-K3 with:
 
 | Recipe | TP | PP | EP | Max ctx | Notes |
 |---|---|---|---|---|---|
-| [`kimi-k3-full-hh-b12x-tp16.yaml`](recipes/kimi-k3-full-hh-b12x-tp16.yaml) | 16 | 1 | yes | ~200K | full-speed path, GMU 0.86 |
-| [`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml) | 8 | 2 | no | ~800K+ | max-context path, GMU 0.82 |
+| [`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml) | 8 | 2 | no | **~800K** | **Recommended path** — max context, usable for coding, GMU 0.82 |
+| [`kimi-k3-full-hh-b12x-tp16.yaml`](recipes/kimi-k3-full-hh-b12x-tp16.yaml) | 16 | 1 | yes | ~200K | Too tight for coding workloads on 16× GB10; keep for short-context benchmarks |
+
+> **InstantTensor loader**: works on sm121 and cuts model load from ~15 min to ~4.2 min
+> (`--load-format instanttensor`). It trades memory for speed: it headrooms **GMU down**
+> (and with it max context) to make room for the faster load path, so it's the right choice
+> for **quick iteration on optimization tasks**, while the default loader is used for
+> production context ceilings.
 
 ## Building the image
+
+### Prebuilt image
+
+The recipes reference `container: vllm-node-kimi3-hh`. A prebuilt image is published at:
+
+```bash
+docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest
+```
 
 ### Self-contained (this repo)
 
 ```bash
 ./kimi-k3/v1/build.sh                    # build local tag vllm-node-kimi3-hh
-./kimi-k3/v1/build.sh --push             # build + push to GHCR
 ```
 
 The [`build.sh`](build.sh) and [`Dockerfile`](Dockerfile) are self-contained: they clone the
@@ -81,13 +103,13 @@ weights live under `/root/models/models115/Kimi-K3` (full) and the DSpark draft 
 model tree.
 
 ```bash
-# From the eugr harness
-./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml --setup   # TP16 path (stop GLM-5.2 on .11-.18 first)
-./run-recipe.sh kimi-k3-full-hh-b12x-pp2.yaml --setup    # TP8+PP2 path (800K+ ctx)
+# From the eugr harness — PP2 is the primary/recommended recipe
+./run-recipe.sh kimi-k3-full-hh-b12x-pp2.yaml --setup    # TP8+PP2, ~800K ctx (stop GLM-5.2 on .11-.18 first)
+./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml --setup   # TP16 ~200K — benchmarks only
 
 # Or the bundled manage scripts (start/stop/status/kill across all 16 nodes, port 5002)
-./kimi-k3/v1/scripts/manage-kimi-k3-full-tp16.sh start
 ./kimi-k3/v1/scripts/manage-kimi-k3-full-pp2.sh  start
+./kimi-k3/v1/scripts/manage-kimi-k3-full-tp16.sh start
 ```
 
 Key serve args (both recipes):
