@@ -8,10 +8,9 @@
 #   ./kimi-k3/v1/build.sh --no-cache   # rebuild without Docker cache
 #
 # Prerequisites:
-#   - wheels/ populated (prebuilt vLLM + FlashInfer wheels, see README) or prebuilt via build args
 #   - docker login ghcr.io -u ciprianveg   # PAT with write:packages scope for --push
 #
-# The Dockerfile bind-mounts ./wheels and ./mods/b12x-nvfp4/patches/sparkinfer-src
+# The Dockerfile bind-mounts ./mods/b12x-nvfp4/patches/sparkinfer-src
 # so this script must be run from the repo root (./kimi-k3/v1/build.sh).
 #
 # Build time on GB10 head: ~20-40 min (cached stages) or ~80-90 min (full --no-cache).
@@ -43,11 +42,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! -d "$SCRIPT_DIR/wheels" ]]; then
-    echo "WARNING: $SCRIPT_DIR/wheels not found — build will compile from source (slow)."
-elif ! compgen -G "$SCRIPT_DIR/wheels/*.whl" >/dev/null; then
-    echo "NOTE: $SCRIPT_DIR/wheels is empty — using in-image vLLM/FlashInfer builds."
-fi
+# Prebuilt wheels are not bundled — the in-image vLLM/FlashInfer builds are authoritative.
 
 echo "Building KIMI-K3 B12X image"
 echo "  Dockerfile: $SCRIPT_DIR/Dockerfile"

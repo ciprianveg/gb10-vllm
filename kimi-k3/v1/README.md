@@ -56,8 +56,8 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest
 
 The [`build.sh`](build.sh) and [`Dockerfile`](Dockerfile) are self-contained: they clone the
 fork, build vLLM + FlashInfer in-image, and bind-mount
-`mods/b12x-nvfp4/patches/sparkinfer-src` to install sparkinfer. `wheels/` is optional — when
-empty, vLLM/FlashInfer are compiled from source.
+`mods/b12x-nvfp4/patches/sparkinfer-src` to install sparkinfer.
+vLLM/FlashInfer are always compiled in-image (no prebuilt `wheels/`).
 
 ### Via the eugr build harness (the original build path)
 

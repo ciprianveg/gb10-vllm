@@ -174,23 +174,10 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
      uv pip install torch==2.11.0 torchvision torchaudio triton --index-url https://download.pytorch.org/whl/cu130 && \
      uv pip install nvidia-nvshmem-cu13 "apache-tvm-ffi<0.2"
 
-# Install prebuilt wheels from host ./wheels/ (optional speedup — the in-image
-# vLLM/FlashInfer builds above are authoritative. Skipped when ./wheels is empty
-# or absent from the build context.)
-ARG PRE_TRANSFORMERS=0
-RUN --mount=type=bind,source=wheels,target=/workspace/wheels \
-    --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
-    if compgen -G "/workspace/wheels/*.whl" >/dev/null; then \
-        PINNED_TORCH=$(python3 -c "import torch; print(torch.__version__)") && \
-        echo "torch==${PINNED_TORCH}" > /tmp/wheel-override.txt && \
-        echo "fastapi[standard]>=0.115.0,<0.137.0" >> /tmp/wheel-override.txt && \
-        if [ "$PRE_TRANSFORMERS" = "1" ]; then \
-            echo "transformers>=5.0.0" >> /tmp/wheel-override.txt; \
-        fi && \
-        uv pip install /workspace/wheels/*.whl --override /tmp/wheel-override.txt; \
-    else \
-        echo "wheels/ empty or absent — using in-image vLLM/FlashInfer builds"; \
-    fi
+# Prebuilt wheels are not bundled — the in-image vLLM/FlashInfer builds below are
+# authoritative. (Removed the host ./wheels/ bind-mount: the dir was always empty.)
+RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+    echo "wheels not bundled — using in-image vLLM/FlashInfer builds";
 
 # Setup environment for runtime
 ARG TORCH_CUDA_ARCH_LIST="12.1a"
