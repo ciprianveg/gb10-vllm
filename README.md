@@ -90,7 +90,7 @@ See each model page for the exact recipe list and pre-stop requirements.
 3. Write `.yaml` recipes the same schema as existing ones (`recipe_version`, `container`,
    `command`, `mods`, `env`).
 4. Add one row to the [Models](#models) table.
-5. Push the image to GHCR and flip visibility to public (UI-only; see below).
+5. Push the image to GHCR and add the tag to [Prebuilt images](#building--publishing).
 
 ## Building & publishing
 
@@ -104,9 +104,6 @@ Prebuilt images:
 
 - `ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest`
 - `ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision` (and other v18 tags)
-
-> **GHCR visibility is changed on the web UI only** — the REST API has no endpoint for it.
-> After first push, open the package settings (Danger Zone) and set Visibility → **Public**.
 
 ## Environment conventions
 
