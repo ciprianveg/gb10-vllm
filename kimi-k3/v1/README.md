@@ -106,16 +106,15 @@ model tree.
 # From the eugr harness — PP2 is the primary/recommended recipe
 ./run-recipe.sh kimi-k3-full-hh-b12x-pp2.yaml --setup    # TP8+PP2, ~800K ctx (stop GLM-5.2 on .11-.18 first)
 ./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml --setup   # TP16 ~200K — benchmarks only
-
-# Or the bundled manage scripts (start/stop/status/kill across all 16 nodes, port 5002)
-./kimi-k3/v1/scripts/manage-kimi-k3-full-pp2.sh  start
-./kimi-k3/v1/scripts/manage-kimi-k3-full-tp16.sh start
 ```
+
+The recipes live in `kimi-k3/v1/recipes/` and are used from the eugr vllm harness exactly like
+GLM-5.2 — `./run-recipe.sh <name>.yaml` (see the harness README). No separate runner scripts.
 
 Key serve args (both recipes):
 
 - `--attention-backend B12X_MLA`, `--moe-backend marlin`, `--enable-expert-parallel` (TP16)
-- DSpark spec decode: `{"method":"dspark","num_speculative_tokens":7,"attention_backend":"B12X_MLA"}`
+- DSpark spec decode: `{"method":"dspark","num_speculative_tokens":5,"attention_backend":"B12X_MLA"}`
 - `--reasoning-parser kimi_k3 --tool-call-parser kimi_k3 --enable-auto-tool-choice`
 - `--port 5002` (this image's cluster uses 5002; GLM-5.2 on `.11-.18` uses 5001)
 

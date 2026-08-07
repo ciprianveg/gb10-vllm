@@ -101,6 +101,6 @@ applied. Re-running the mod is safe.
   check (run by `run.sh`).
 - `grep -q 'fix-k3-ep-intermediate-padding' model.py` — guard present (run
   by `run.sh`).
-- End-to-end: relaunch the cluster via `./manage-kimi-k3-full-tp16.sh start`
-  and watch `check-mem` — expect ~90-97 GiB used per node (25-30 GiB free)
+- End-to-end: relaunch the cluster via `./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml`
+  (eugr harness) and watch `check-mem` — expect ~90-97 GiB used per node (25-30 GiB free)
   instead of the prior ~120 GiB / ~1 GiB free.
