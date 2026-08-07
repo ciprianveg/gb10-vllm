@@ -31,10 +31,8 @@ gb10-vllm/
 Each model lives in its own subtree with a self-contained build, recipes, and mods.
 Open the model page for full customization guides:
 
-| Model | Page | What's inside |
-|-------|------|---------------|
-| **KIMI-K3** (Full, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | Dockerfile + build.sh, recipes (TP16, TP8+PP2), runtime mods |
-| **GLM-5.2** (Int4-Int8, v16/v18/v18-vision) | [glm-5.2](glm-5.2/) | per-version builds, vision overlay, production recipes |
+| **KIMI-K3** (Full, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | Dockerfile + build.sh, recipes (TP16, TP8+PP2), runtime mods — [model page](kimi-k3/v1/README.md) |
+| **GLM-5.2** (Int4-Int8, v16/v18/v18-vision) | [glm-5.2](glm-5.2/) | per-version builds, vision overlay, production recipes — [model page](glm-5.2/README.md) |
 
 ## Quick Start
 
