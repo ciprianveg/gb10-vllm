@@ -79,7 +79,7 @@ command: |
     --max-num-batched-tokens 2048 \
     --max-num-seqs 4 \
     --max-cudagraph-capture-size 32 \
-    --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":7,"draft_tensor_parallel_size":1,"draft_sample_method":"greedy","attention_backend":"B12X_MLA"}}' \
+    --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":5,"draft_tensor_parallel_size":1,"draft_sample_method":"greedy","attention_backend":"B12X_MLA"}}' \
     --reasoning-parser kimi_k3 \
     --tool-call-parser kimi_k3 \
     --enable-auto-tool-choice \

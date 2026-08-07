@@ -129,10 +129,9 @@ applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121. Th
 
 - **DSpark acceptance drop on B12X_MLA**: after switching the draft target's attention
   backend from `TRITON_MLA` to `B12X_MLA`, DSpark acceptance dropped and the speculative
-  token count had to be **reduced from the recommended 7 to 5**. The **PP2 recipe already
-  uses `num_speculative_tokens: 5`**; the TP16 recipe still carries `7` from the Triton-era
-  tuning. Investigate why B12X_MLA loses acceptance, and re-tune the budget (and the
-  sampling/scheduling knobs) for B12X.
+  token count had to be **reduced from the recommended 7 to 5** — both recipes now use
+  `num_speculative_tokens: 5`. Investigate why B12X_MLA loses acceptance, and re-tune the
+  budget (and the sampling/scheduling knobs) for B12X.
 - **CUDAGraph impact with B12X_MLA**: CUDAGraph now works with the `B12X_MLA` path (it
   did not with the native-FlashInfer kernel for this model). Quantify the graph-replay vs.
   eager speedup for B12X, and check for any correctness/peak-memory regressions when
