@@ -125,6 +125,19 @@ The 10 runtime mods applied by the recipes (in `mods/`, each a directory with a 
 applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121. The
 `b12x-nvfp4` mod additionally carries the sparkinfer source used at build time.
 
+## TODO / Known issues
+
+- **DSpark acceptance drop on B12X_MLA**: after switching the draft target's attention
+  backend from `TRITON_MLA` to `B12X_MLA`, DSpark acceptance dropped and the speculative
+  token count had to be **reduced from the recommended 7 to 5** — the recipes above still
+  use `num_speculative_tokens: 7` from the Triton-era tuning. Investigate why B12X_MLA
+  loses acceptance, and re-tune the budget (and the sampling/scheduling knobs) for B12X.
+  Budget, acceptance window, and draft-model behavior should be re-validated per backend.
+- **CUDAGraph impact with B12X_MLA**: CUDAGraph now works with the `B12X_MLA` path (it
+  did not with the native-FlashInfer kernel for this model). Quantify the graph-replay vs.
+  eager speedup for B12X, and check for any correctness/peak-memory regressions when
+  `--enforce-eager` is dropped.
+
 ## Credits
 
 - **local-inference-lab/vllm** (branch `codex/hh-kimi-k3-dspark-dcp16-20260804`): vLLM fork with
