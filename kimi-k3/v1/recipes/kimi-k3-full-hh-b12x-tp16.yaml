@@ -16,7 +16,7 @@ defaults:
 # Mods: B12X MLA/smem fixes, k3 fp8-triton + EP padding, DSpark warmup / block-table /
 # fused-kv / pp2-aux-forward, flash-kda-prefill, dspark-perf-unified.
 # num_speculative_tokens=5 (7 drops DSpark acceptance on B12X).
-mods: [mods/fix-gb10-mla-smem, mods/fix-flashinfer-mla-sm121, mods/fix-k3-fp8-triton-mla, mods/fix-k3-ep-intermediate-padding, mods/fix-k3-dspark-warmup, mods/fix-mla-spec-decode-block-table, mods/fix-dspark-fused-kv, mods/fix-dspark-pp2-aux-forward, mods/fix-k3-flash-kda-prefill, mods/fix-k3-dspark-perf-unified]
+mods: [mods/fix-gb10-mla-smem, mods/fix-flashinfer-mla-sm121, mods/fix-k3-fp8-triton-mla, mods/fix-k3-ep-intermediate-padding, mods/fix-k3-dspark-warmup, mods/fix-mla-spec-decode-block-table, mods/fix-dspark-fused-kv, mods/fix-dspark-pp2-aux-forward, mods/fix-k3-flash-kda-prefill, mods/fix-k3-dspark-perf-unified, mods/fix-k3-mamba-idx-int64]
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"

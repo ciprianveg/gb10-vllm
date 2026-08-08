@@ -120,9 +120,10 @@ Key serve args (both recipes):
 
 ## Mods
 
-The 10 runtime mods applied by the recipes (in `mods/`, each a directory with a `run.sh`
-applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121. The
-`b12x-nvfp4` mod additionally carries the sparkinfer source used at build time.
+The 11 runtime mods applied by the recipes (in `mods/`, each a directory with a `run.sh`
+applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121, plus a
+dtype fix for the Mamba-hybrid spec-decode postprocess. The `b12x-nvfp4` mod additionally
+carries the sparkinfer source used at build time.
 
 ## TODO / Known issues
 
@@ -135,6 +136,12 @@ applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121. Th
   did not with the native-FlashInfer kernel for this model). Quantify the graph-replay vs.
   eager speedup for B12X, and check for any correctness/peak-memory regressions when
   `--enforce-eager` is dropped.
+- ✅ **mamba_hybrid `index_fill_()` dtype crash** (resolved by `fix-k3-mamba-idx-int64`):
+  the fork allocates `input_batch.idx_mapping` as `int32`, but
+  `mamba_hybrid.py:299` calls `index_fill_(0, idx_mapping, ...)`, which strictly requires
+  `int64`. Without the mod, any step with `num_sampled` as a Python int (chunked prefill
+  continuation) crashes both TP16 and PP2 — draft-token count irrelevant. Fix is a
+  one-line cast; zero measurable decode overhead.
 
 ## Credits
 
