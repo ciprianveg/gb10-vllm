@@ -4,7 +4,7 @@ vLLM inference solutions for NVIDIA **DGX Spark / DGX Spark+ (GB10)** — Blackw
 
 This repo is a **model-agnostic platform**: a common GB10/SM121 vLLM stack (B12X_MLA attention,
 speculative decoding, PP/TP/EP) plus per-model subtrees for building images, deploying recipes,
-and applying runtime mods. New models slot in as their own subtree — see [Adding a model](#adding-a-model).
+and applying runtime mods.
 
 ## Models index
 
@@ -83,16 +83,6 @@ env vars, and the full `vllm serve` command.
 ```
 
 See each model page for the exact recipe list and pre-stop requirements.
-
-## Adding a model
-
-1. Create `my-model/` with `README.md`, `build.sh`, `Dockerfile`, `recipes/`, `mods/`
-   (copy the structure from `kimi-k3/` or `glm-5.2/`).
-2. Add the build step that installs the b12x/sparkinfer source for SM121 ML attention.
-3. Write `.yaml` recipes the same schema as existing ones (`recipe_version`, `container`,
-   `command`, `mods`, `env`).
-4. Add one row to the [Models](#models) table.
-5. Push the image to GHCR and add the tag to [Prebuilt images](#building--publishing).
 
 ## Building & publishing
 
