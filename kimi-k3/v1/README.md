@@ -1,19 +1,15 @@
 # KIMI-K3 B12X_MLA + DSpark on 16× GB10 DGX Spark
 
-Full [Kimi-K3](https://huggingface.co/moonshotai/Kimi-K3) (BF16 attention + MXFP4 experts)
-served with **B12X_MLA** attention (CuTe DSL `dense_mla` via sparkinfer) + **DSpark**
-speculative decoding (draft: [Inferact/Kimi-K3-DSpark](https://huggingface.co/Inferact/Kimi-K3-DSpark))
-on 16-node DGX Spark GB10 (sm121) clusters, TP16 or the recommended TP8+PP2.
+> **HISTORIC ARTIFACT** — superseded by [`kimi-k3/v2`](../v2/README.md)
+> (native-sm121 image + RedHat DSpark). v2 is faster, fits more context on the
+> recommended TP16 path, and needs no runtime mods. This page is kept for
+> reference only.
+
+Full KIMI-K3 (BF16 attention + MXFP4 experts) served with **B12X_MLA** attention (CuTe DSL
+`dense_mla` via sparkinfer) + **DSpark** speculative decoding on 16-node DGX Spark GB10
+(sm121) clusters, single-node TP16 or TP8+PP2.
 
 Image: `vllm-node-kimi3-hh` (linux/arm64, sm121).
-
-## Recommended path: TP8+PP2
-
-**Use the PP2 recipe for real workloads.** TP8+PP2 fits **~800K context** and is the layout to
-follow with this model. The TP16 path is **too tight on 16× GB10 for this model to be usable
-for coding** — it fits only ~200K because KIMI-K3's 640K+ effective window (~378K built-in +
-sliding window) exceeds what 16 single-rank KV caches can hold. Start your deployment from
-[`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml).
 
 ## What this is
 
@@ -29,24 +25,10 @@ provides the `B12X_MLA` dense-MLA attention backend), and serves KIMI-K3 with:
 
 | Recipe | TP | PP | EP | Max ctx | Notes |
 |---|---|---|---|---|---|
-| [`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml) | 8 | 2 | no | **~800K** | **Recommended path** — max context, usable for coding, GMU 0.82 |
-| [`kimi-k3-full-hh-b12x-tp16.yaml`](recipes/kimi-k3-full-hh-b12x-tp16.yaml) | 16 | 1 | yes | ~200K | Too tight for coding workloads on 16× GB10; keep for short-context benchmarks |
-
-> **InstantTensor loader**: works on sm121 and cuts model load from ~15 min to ~4.2 min
-> (`--load-format instanttensor`). It trades memory for speed: it headrooms **GMU down**
-> (and with it max context) to make room for the faster load path, so it's the right choice
-> for **quick iteration on optimization tasks**, while the default loader is used for
-> production context ceilings.
+| [`kimi-k3-full-hh-b12x-tp16.yaml`](recipes/kimi-k3-full-hh-b12x-tp16.yaml) | 16 | 1 | yes | ~200K | full-speed path, GMU 0.86 |
+| [`kimi-k3-full-hh-b12x-pp2.yaml`](recipes/kimi-k3-full-hh-b12x-pp2.yaml) | 8 | 2 | no | ~800K+ | max-context path, GMU 0.82 |
 
 ## Building the image
-
-### Prebuilt image
-
-The recipes reference `container: vllm-node-kimi3-hh`. A prebuilt image is published at:
-
-```bash
-docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest
-```
 
 ### Self-contained (this repo)
 
@@ -56,13 +38,13 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest
 
 The [`build.sh`](build.sh) and [`Dockerfile`](Dockerfile) are self-contained: they clone the
 fork, build vLLM + FlashInfer in-image, and bind-mount
-`mods/b12x-nvfp4/patches/sparkinfer-src` to install sparkinfer.
-vLLM/FlashInfer are always compiled in-image (no prebuilt `wheels/`).
+`mods/b12x-nvfp4/patches/sparkinfer-src` to install sparkinfer. `wheels/` is optional — when
+empty, vLLM/FlashInfer are compiled from source.
 
 ### Via the eugr build harness (the original build path)
 
 The image used by the recipes was built with `eugr/spark-vllm-docker`'s `build-and-copy.sh`.
-Other eugr-infrastructure users can reproduce it exactly with:
+Other eugr-vllm users can reproduce it exactly with:
 
 ```bash
 cd ~/eugr/spark-vllm-docker
@@ -77,13 +59,6 @@ cd ~/eugr/spark-vllm-docker
   -c
 ```
 
-Prerequisites on the build host:
-- `mods/b12x-nvfp4/patches/sparkinfer-src/` present (sparkinfer 1.0.1 source; cloned from
-  `https://github.com/local-inference-lab/b12x.git` branch `codex/hh-kimi-k3-dcp16-20260804`).
-  In this repo it is tracked under `mods/b12x-nvfp4/patches/sparkinfer-src/` so a fresh clone
-  resolves the bind mount.
-- The fork ref must exist upstream (branch `codex/hh-kimi-k3-dspark-dcp16-20260804` on
-  `local-inference-lab/vllm`).
 
 Verified build parameters from the built image (`/workspace/build-metadata.yaml`):
 
@@ -98,50 +73,26 @@ Verified build parameters from the built image (`/workspace/build-metadata.yaml`
 ## Launch
 
 Recipes are `cluster_only` (16 nodes) and reference `container: vllm-node-kimi3-hh`. Model
-weights live under `/root/models/models115/Kimi-K3` (full) and the DSpark draft under
+in my case weights live under `/root/models/models115/Kimi-K3` (full) and the DSpark draft under
 `/root/models/models16/K3-DSpark-Inferact`; `shared_weights_nfs: true` expects an NFS-mounted
 model tree.
 
 ```bash
-# From the eugr harness — PP2 is the primary/recommended recipe
-./run-recipe.sh kimi-k3-full-hh-b12x-pp2.yaml --setup    # TP8+PP2, ~800K ctx (stop GLM-5.2 on .11-.18 first)
-./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml --setup   # TP16 ~200K — benchmarks only
+# From the eugr harness
+./run-recipe.sh kimi-k3-full-hh-b12x-tp16.yaml --setup   # TP16 path (stop GLM-5.2 on .11-.18 first)
+./run-recipe.sh kimi-k3-full-hh-b12x-pp2.yaml --setup    # TP8+PP2 path (800K+ ctx)
+
+# Or the bundled manage scripts (start/stop/status/kill across all 16 nodes, port 5002)
+./kimi-k3/v1/scripts/manage-kimi-k3-full-tp16.sh start
+./kimi-k3/v1/scripts/manage-kimi-k3-full-pp2.sh  start
 ```
 
-The recipes live in `kimi-k3/v1/recipes/` and are used from the eugr vllm harness exactly like
-GLM-5.2 — `./run-recipe.sh <name>.yaml` (see the harness README). No separate runner scripts.
-
-Key serve args (both recipes):
-
-- `--attention-backend B12X_MLA`, `--moe-backend marlin`, `--enable-expert-parallel` (TP16)
-- DSpark spec decode: `{"method":"dspark","num_speculative_tokens":5,"attention_backend":"B12X_MLA"}`
-- `--reasoning-parser kimi_k3 --tool-call-parser kimi_k3 --enable-auto-tool-choice`
-- `--port 5002` (this image's cluster uses 5002; GLM-5.2 on `.11-.18` uses 5001)
 
 ## Mods
 
-The 11 runtime mods applied by the recipes (in `mods/`, each a directory with a `run.sh`
-applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121, plus a
-dtype fix for the Mamba-hybrid spec-decode postprocess. The `b12x-nvfp4` mod additionally
-carries the sparkinfer source used at build time.
-
-## TODO / Known issues
-
-- **DSpark acceptance drop on B12X_MLA**: after switching the draft target's attention
-  backend from `TRITON_MLA` to `B12X_MLA`, DSpark acceptance dropped and the speculative
-  token count had to be **reduced from the recommended 7 to 5** — both recipes now use
-  `num_speculative_tokens: 5`. Investigate why B12X_MLA loses acceptance, and re-tune the
-  budget (and the sampling/scheduling knobs) for B12X.
-- **CUDAGraph impact with B12X_MLA**: CUDAGraph now works with the `B12X_MLA` path (it
-  did not with the native-FlashInfer kernel for this model). Quantify the graph-replay vs.
-  eager speedup for B12X, and check for any correctness/peak-memory regressions when
-  `--enforce-eager` is dropped.
-- ✅ **mamba_hybrid `index_fill_()` dtype crash** (resolved by `fix-k3-mamba-idx-int64`):
-  the fork allocates `input_batch.idx_mapping` as `int32`, but
-  `mamba_hybrid.py:299` calls `index_fill_(0, idx_mapping, ...)`, which strictly requires
-  `int64`. Without the mod, any step with `num_sampled` as a Python int (chunked prefill
-  continuation) crashes both TP16 and PP2 — draft-token count irrelevant. Fix is a
-  one-line cast; zero measurable decode overhead.
+The 10 runtime mods applied by the recipes (in `mods/`, each a directory with a `run.sh`
+applied by the eugr harness) fix B12X_MLA / DSpark / FP8-MLA issues on sm121. The
+`b12x-nvfp4` mod additionally carries the sparkinfer source used at build time.
 
 ## Credits
 

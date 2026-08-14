@@ -1,0 +1,91 @@
+# KIMI-K3 MXFP4 — sm121 image + TP8 + PP2 + RedHat DSpark
+#
+# Full Kimi-K3 on 16× GB10 nodes. ~1M context with slightly increased
+# gpu-memory-utilization and instanttensor disabled; ~750K context with
+# instanttensor. ~20% slower than TP16.
+# Requires the external fix-pp2-sm121 mod (PP2 + DSpark infra fixes).
+
+recipe_version: "1"
+name: kimi-k3-tp8pp2
+description: KIMI-K3 sm121 + RedHat DSpark s5, TP8+PP2, 16× GB10
+raw_entrypoint: true
+shared_weights_nfs: true
+cluster_only: true
+
+container: vllm-node-kimi3-sm121
+
+model: /root/models/models115/Kimi-K3
+
+defaults:
+  model_path: /root/models/models115/Kimi-K3
+  draft_model_path: /root/models/models11/RedHatAI-Kimi-K3-dspark
+
+mods: [mods/fix-pp2-sm121]
+
+env:
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+  HF_HOME: /cache/huggingface
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  TORCH_CUDA_ARCH_LIST: "12.1a"
+  CUTE_DSL_ARCH: "sm_121a"
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  VLLM_COMPUTE_NANS_IN_LOGITS: "1"
+  VLLM_KIMI_K3_SHARD_SP_SHARED_EXPERT: "1"
+  VLLM_KIMI_FUSED_TOPK16: "1"
+  VLLM_USE_FLASHINFER_MOE_FP4: "1"
+  VLLM_USE_FLASHINFER_MOE_FP16: "1"
+  VLLM_NVFP4_GEMM_BACKEND: flashinfer-b12x
+  VLLM_FLASHINFER_ALLREDUCE_BACKEND: trtllm
+  FLASHINFER_DISABLE_VERSION_CHECK: "1"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  CUDA_MODULE_LOADING: LAZY
+  CUDA_MODULE_DATA_LOADING: LAZY
+  SAFETENSORS_FAST_GPU: "1"
+  NCCL_NET: IB
+  NCCL_IB_DISABLE: "0"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_CROSS_NIC: "1"
+  NCCL_CUMEM_ENABLE: "0"
+  NCCL_IGNORE_CPU_AFFINITY: "1"
+  NCCL_DEBUG: WARN
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_BUFFSIZE: "16777216"
+  NCCL_MAX_NCHANNELS: "4"
+  NCCL_MIN_NCHANNELS: "4"
+  OMP_NUM_THREADS: "8"
+  VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: "1"
+  RAY_CGRAPH_get_timeout: "1800"
+  RAY_memory_monitor_refresh_ms: "0"
+  TORCH_EXTENSIONS_DIR: /cache/huggingface/torch_extensions
+  TORCHINDUCTOR_CACHE_DIR: /cache/huggingface/torchinductor-cache
+  TRITON_CACHE_DIR: /cache/huggingface/triton-cache
+  XDG_CACHE_HOME: /cache/huggingface
+
+command: |
+  vllm serve {model_path} \
+    --served-model-name KIMI-K3 \
+    --attention-backend B12X_MLA \
+    --tensor-parallel-size 8 \
+    --pipeline-parallel-size 2 \
+    --distributed-executor-backend ray \
+    --moe-backend marlin \
+    --kv-cache-dtype fp8 \
+    --load-format instanttensor \
+    --gpu-memory-utilization 0.909 \
+    --max-model-len auto \
+    --host 0.0.0.0 --port 5001 \
+    --trust-remote-code \
+    --async-scheduling \
+    --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":6,"draft_tensor_parallel_size":1,"attention_backend":"TRITON_ATTN"}}' \
+    --max-num-batched-tokens 4096 \
+    --attention-config '{{"use_prefill_query_quantization":true}}' \
+    --max-num-seqs 4 \
+    --reasoning-parser kimi_k3 \
+    --tool-call-parser kimi_k3 \
+    --enable-auto-tool-choice \
+    --generation-config vllm \
+    --limit-mm-per-prompt '{{"image":1,"video":0}}' \
+    --disable-uvicorn-access-log

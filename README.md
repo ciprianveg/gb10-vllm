@@ -10,7 +10,8 @@ and applying runtime mods. New models slot in as their own subtree — see [Addi
 
 | Model | Subtree | Highlights |
 |-------|---------|------------|
-| **KIMI-K3** (Full, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | TP16 / TP8+PP2, MXFP4, 200K–800K ctx |
+| **KIMI-K3** (Full, sm121 image + RedHat DSpark) | [kimi-k3/v2](kimi-k3/v2/) | **Recommended** — TP16 (~500K ctx) / TP8+PP2 (~1M ctx), MXFP4, no runtime mods on TP16 |
+| **KIMI-K3** (v1, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | Historic artifact — kept for reference only |
 | **GLM-5.2** (Int4-Int8) | [glm-5.2](glm-5.2/) | v16 / v18 / v18-vision / v18.1-vision, ~1,330 t/s prefill, vision | 
 
 Each subtree is self-contained: a `README.md` model page, build script + Dockerfile, deploy
@@ -49,7 +50,8 @@ recipes (`*.yaml`), and runtime mods. Open the model page for its full guide.
 
 ```
 gb10-vllm/
-├── kimi-k3/v1/               KIMI-K3 build, recipes, mods — see kimi-k3/v1/README.md
+├── kimi-k3/v1/               KIMI-K3 v1 (historic artifact) — see kimi-k3/v1/README.md
+├── kimi-k3/v2/               KIMI-K3 v2 (recommended) — sm121 image + RedHat DSpark
 ├── glm-5.2/                  GLM-5.2 v16/v18/v18-vision — see glm-5.2/README.md
 ├── README.md                 this file (platform overview + model index)
 ├── ATTRIBUTION.md            upstream credits
@@ -95,14 +97,16 @@ See each model page for the exact recipe list and pre-stop requirements.
 ## Building & publishing
 
 ```bash
-./kimi-k3/v1/build.sh              # KIMI-K3 local tag (vllm-node-kimi3-hh)
-./kimi-k3/v1/build.sh --push      # → ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest
+./kimi-k3/v2/build.sh             # KIMI-K3 v2 local tag (vllm-node-kimi3-sm121)
+./kimi-k3/v2/build.sh --push     # → ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v2-sm121
+./kimi-k3/v1/build.sh --push      # → ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest (v1, historic)
 ./glm-5.2/v18-vision/build-nvfp4.sh --push   # → ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision
 ```
 
 Prebuilt images:
 
-- `ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest`
+- `ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v2-sm121` (recommended)
+- `ghcr.io/ciprianveg/gb10-vllm/kimi-k3:latest` (v1, historic)
 - `ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision` (and other v18 tags)
 
 ## Environment conventions

@@ -1,0 +1,261 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NVIDIA_PYTORCH_IMAGE=nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c
+
+FROM ${NVIDIA_PYTORCH_IMAGE} AS nccl-build
+
+ARG NCCL_REPO=https://github.com/local-inference-lab/nccl-canonical.git
+ARG NCCL_REF=canonical/cu133-nccl2312-amd-turin
+ARG NCCL_COMMIT=fb6f40999a2a9e63104d4ae4a84118bce61528f8
+ARG NCCL_VERSION=2.31.2
+ARG NCCL_MAX_JOBS=128
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+WORKDIR /build
+RUN git clone --filter=blob:none --no-checkout "${NCCL_REPO}" nccl \
+ && git -C nccl fetch --depth=1 origin "${NCCL_REF}" \
+ && test "$(git -C nccl rev-parse FETCH_HEAD)" = "${NCCL_COMMIT}" \
+ && git -C nccl checkout --detach "${NCCL_COMMIT}" \
+ && test "$(git -C nccl rev-parse HEAD)" = "${NCCL_COMMIT}"
+
+# The image serves RTX PRO 6000 Blackwell GPUs. SASS and forward-compatible
+# PTX for compute capability 12.0 keep the NCCL artifact small and explicit.
+RUN make -C /build/nccl -j"${NCCL_MAX_JOBS}" src.build \
+      CUDA_HOME=/usr/local/cuda \
+      NVCC_GENCODE='-gencode=arch=compute_121,code=sm_121 -gencode=arch=compute_121,code=compute_121' \
+ && test -f "/build/nccl/build/lib/libnccl.so.${NCCL_VERSION}" \
+ && strings "/build/nccl/build/lib/libnccl.so.${NCCL_VERSION}" \
+      | grep -F "NCCL version ${NCCL_VERSION} compiled with CUDA 13.3"
+
+FROM ${NVIDIA_PYTORCH_IMAGE} AS torch-build
+
+ARG PYTORCH_REPO=https://github.com/pytorch/pytorch.git
+ARG PYTORCH_REF=v2.13.0
+ARG PYTORCH_COMMIT=cf30153c4c131c8164ee7798e5022d810682e2cb
+ARG PYTORCH_VERSION=2.13.0
+ARG TORCH_MAX_JOBS=128
+ARG TORCH_CUDA_ARCH_LIST=12.1a
+ARG NCCL_VERSION=2.31.2
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+COPY --from=nccl-build /build/nccl/build/include/ /opt/local-inference/nccl/include/
+COPY --from=nccl-build /build/nccl/build/lib/libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2.31.2
+RUN ln -s libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2 \
+ && ln -s libnccl.so.2 /opt/local-inference/nccl/lib/libnccl.so
+
+ENV NCCL_ROOT=/opt/local-inference/nccl \
+    NCCL_INCLUDE_DIR=/opt/local-inference/nccl/include \
+    NCCL_LIB_DIR=/opt/local-inference/nccl/lib \
+    LD_LIBRARY_PATH=/opt/local-inference/nccl/lib:${LD_LIBRARY_PATH} \
+    USE_CUDA=1 \
+    USE_CUDNN=1 \
+    USE_CUSPARSELT=1 \
+    USE_NCCL=1 \
+    USE_SYSTEM_NCCL=1 \
+    USE_DISTRIBUTED=1 \
+    USE_KINETO=1 \
+    BUILD_TEST=0 \
+    BUILD_CAFFE2=0 \
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
+    MAX_JOBS=${TORCH_MAX_JOBS} \
+    PYTORCH_BUILD_VERSION=${PYTORCH_VERSION} \
+    PYTORCH_BUILD_NUMBER=1 \
+    CMAKE_C_COMPILER_LAUNCHER=ccache \
+    CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    CMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+    TORCH_NVCC_FLAGS='-Xfatbin -compress-all'
+
+WORKDIR /build
+RUN git clone --filter=blob:none --no-checkout "${PYTORCH_REPO}" pytorch \
+ && git -C pytorch fetch --depth=1 origin "${PYTORCH_COMMIT}" \
+ && git -C pytorch checkout --detach "${PYTORCH_COMMIT}" \
+ && test "$(git -C pytorch rev-parse HEAD)" = "${PYTORCH_COMMIT}" \
+ && git -C pytorch submodule sync --recursive \
+ && git -C pytorch submodule update --init --recursive --depth=1
+
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ccache \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build/pytorch
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -r requirements.txt \
+ && python -m pip install 'cmake>=3.26,<4' ninja packaging wheel
+
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    --mount=type=cache,target=/root/.cache/pip \
+    python setup.py bdist_wheel -d /build/torch-wheels \
+ && test "$(find /build/torch-wheels -maxdepth 1 -name 'torch-*.whl' | wc -l)" -eq 1
+
+FROM ${NVIDIA_PYTORCH_IMAGE} AS torchvision-build
+
+ARG TORCHVISION_REPO=https://github.com/pytorch/vision.git
+ARG TORCHVISION_REF=v0.28.0
+ARG TORCHVISION_COMMIT=8fb87713a24951e639c494b0f2a8a81b5f8e33a6
+ARG TORCHVISION_VERSION=0.28.0
+ARG TORCHVISION_MAX_JOBS=128
+ARG PYTORCH_VERSION=2.13.0
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+COPY --from=nccl-build /build/nccl/build/lib/libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2.31.2
+RUN ln -s libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2 \
+ && ln -s libnccl.so.2 /opt/local-inference/nccl/lib/libnccl.so
+COPY --from=torch-build /build/torch-wheels/ /tmp/torch-wheels/
+
+ENV LD_LIBRARY_PATH=/opt/local-inference/nccl/lib:${LD_LIBRARY_PATH} \
+    LD_PRELOAD=/opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+    FORCE_CUDA=1 \
+    PYTORCH_VERSION=${PYTORCH_VERSION} \
+    TORCH_CUDA_ARCH_LIST=12.1a \
+    MAX_JOBS=${TORCHVISION_MAX_JOBS} \
+    BUILD_VERSION=${TORCHVISION_VERSION} \
+    NVCC_FLAGS='-Xfatbin -compress-all'
+
+RUN python -m pip uninstall --yes torch torchvision \
+ && python -m pip install --no-deps /tmp/torch-wheels/torch-*.whl
+
+WORKDIR /build
+RUN git clone --filter=blob:none --no-checkout "${TORCHVISION_REPO}" vision \
+ && git -C vision fetch --depth=1 origin "${TORCHVISION_COMMIT}" \
+ && git -C vision checkout --detach "${TORCHVISION_COMMIT}" \
+ && test "$(git -C vision rev-parse HEAD)" = "${TORCHVISION_COMMIT}"
+
+WORKDIR /build/vision
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install packaging pillow setuptools wheel \
+ && python setup.py bdist_wheel -d /build/torchvision-wheels \
+ && test "$(find /build/torchvision-wheels -maxdepth 1 -name 'torchvision-*.whl' | wc -l)" -eq 1
+
+FROM ${NVIDIA_PYTORCH_IMAGE} AS xgrammar-build
+
+ARG XGRAMMAR_REPO=https://github.com/mlc-ai/xgrammar.git
+ARG XGRAMMAR_REF=v0.2.5
+ARG XGRAMMAR_COMMIT=2ea71da4ccb997a06928c9fb69b99f330da56697
+ARG XGRAMMAR_VERSION=0.2.5
+ARG XGRAMMAR_MAX_JOBS=128
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+WORKDIR /build
+RUN git clone --filter=blob:none --no-checkout "${XGRAMMAR_REPO}" xgrammar \
+ && git -C xgrammar fetch --depth=1 origin "${XGRAMMAR_COMMIT}" \
+ && git -C xgrammar checkout --detach "${XGRAMMAR_COMMIT}" \
+ && test "$(git -C xgrammar rev-parse HEAD)" = "${XGRAMMAR_COMMIT}" \
+ && git -C xgrammar submodule update --init --recursive
+
+# XGrammar 0.2.5 supports the Transformers 5 tokenizer interface used by the
+# Kimi runtime, but its package metadata retains a conservative Transformers 4
+# upper bound. The wheel removes only that metadata upper bound.
+RUN python - <<'PY'
+from pathlib import Path
+
+path = Path('/build/xgrammar/pyproject.toml')
+text = path.read_text(encoding='utf-8')
+needle = '  "transformers>=4.38.0,<5",'
+replacement = '  "transformers>=4.38.0",'
+assert text.count(needle) == 1
+path.write_text(text.replace(needle, replacement), encoding='utf-8')
+PY
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install 'scikit-build-core>=0.10.0' \
+ && SKBUILD_BUILD_DIR=/tmp/xgrammar-build \
+      CMAKE_BUILD_PARALLEL_LEVEL="${XGRAMMAR_MAX_JOBS}" \
+      python -m pip wheel --no-build-isolation --no-deps \
+        --wheel-dir /build/xgrammar-wheels /build/xgrammar \
+ && test "$(find /build/xgrammar-wheels -maxdepth 1 -name 'xgrammar-*.whl' | wc -l)" -eq 1 \
+ && python - <<'PY'
+from pathlib import Path
+
+wheel = next(Path('/build/xgrammar-wheels').glob('xgrammar-*.whl'))
+assert wheel.name.startswith('xgrammar-0.2.5-'), wheel
+PY
+
+FROM ${NVIDIA_PYTORCH_IMAGE} AS runtime
+
+ARG NVIDIA_PYTORCH_IMAGE
+ARG PYTORCH_REPO=https://github.com/pytorch/pytorch.git
+ARG PYTORCH_REF=v2.13.0
+ARG PYTORCH_COMMIT=cf30153c4c131c8164ee7798e5022d810682e2cb
+ARG PYTORCH_VERSION=2.13.0
+ARG TORCHVISION_REPO=https://github.com/pytorch/vision.git
+ARG TORCHVISION_REF=v0.28.0
+ARG TORCHVISION_COMMIT=8fb87713a24951e639c494b0f2a8a81b5f8e33a6
+ARG TORCHVISION_VERSION=0.28.0
+ARG NCCL_REPO=https://github.com/local-inference-lab/nccl-canonical.git
+ARG NCCL_REF=canonical/cu133-nccl2312-amd-turin
+ARG NCCL_COMMIT=fb6f40999a2a9e63104d4ae4a84118bce61528f8
+ARG NCCL_VERSION=2.31.2
+ARG XGRAMMAR_REPO=https://github.com/mlc-ai/xgrammar.git
+ARG XGRAMMAR_REF=v0.2.5
+ARG XGRAMMAR_COMMIT=2ea71da4ccb997a06928c9fb69b99f330da56697
+ARG XGRAMMAR_VERSION=0.2.5
+ARG TRANSFORMERS_MIN_VERSION=5.5.1
+ARG RELEASE_DATE
+ARG DOCKER_COMMIT
+
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
+
+COPY --from=nccl-build /build/nccl/build/include/ /opt/local-inference/nccl/include/
+COPY --from=nccl-build /build/nccl/build/lib/libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2.31.2
+RUN ln -s libnccl.so.2.31.2 /opt/local-inference/nccl/lib/libnccl.so.2 \
+ && ln -s libnccl.so.2 /opt/local-inference/nccl/lib/libnccl.so
+
+COPY --from=torch-build /build/torch-wheels/ /tmp/torch-wheels/
+COPY --from=torchvision-build /build/torchvision-wheels/ /tmp/torchvision-wheels/
+COPY --from=xgrammar-build /build/xgrammar-wheels/ /tmp/xgrammar-wheels/
+COPY tests/verify_kimi_k3_cu133_base.py /opt/local-inference/verify_kimi_k3_cu133_base.py
+COPY tests/torch_nccl_smoke.py /opt/local-inference/torch_nccl_smoke.py
+
+RUN python -m pip uninstall -y torch torchvision torchaudio xgrammar transformers \
+ && python -m pip install --no-deps /tmp/torch-wheels/torch-*.whl \
+ && python -m pip install --no-deps /tmp/torchvision-wheels/torchvision-*.whl \
+ && python -m pip install "transformers>=${TRANSFORMERS_MIN_VERSION}" pytest \
+ && python -m pip install --no-deps /tmp/xgrammar-wheels/xgrammar-*.whl \
+ && rm -rf /tmp/torch-wheels /tmp/torchvision-wheels /tmp/xgrammar-wheels
+
+ENV LD_LIBRARY_PATH=/opt/local-inference/nccl/lib:${LD_LIBRARY_PATH} \
+    LD_PRELOAD=/opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+    VLLM_NCCL_SO_PATH=/opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+    NCCL_LOCAL_INFERENCE_PATH=/opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+    NCCL_PR2127_PATH=/opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    TORCH_CUDA_ARCH_LIST=12.1a \
+    CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+RUN python /opt/local-inference/verify_kimi_k3_cu133_base.py \
+      --torch-version "${PYTORCH_VERSION}" \
+      --torchvision-version "${TORCHVISION_VERSION}" \
+      --cuda-version 13.3 \
+      --nccl-version-code 23102 \
+      --nccl-library /opt/local-inference/nccl/lib/libnccl.so.2.31.2 \
+      --minimum-xgrammar-version "${XGRAMMAR_VERSION}" \
+      --minimum-transformers-version "${TRANSFORMERS_MIN_VERSION}" \
+ && python -m pip check
+
+LABEL org.opencontainers.image.title="Kimi-K3 CUDA 13.3 PyTorch 2.13 base" \
+      org.opencontainers.image.description="Stable PyTorch 2.13 runtime on NVIDIA CUDA 13.3 with AMD Turin NCCL topology support" \
+      org.opencontainers.image.source="https://github.com/local-inference-lab/blackwell-llm-docker" \
+      org.opencontainers.image.version="${RELEASE_DATE}" \
+      org.opencontainers.image.revision="${DOCKER_COMMIT}" \
+      local-inference.runtime.nvidia-pytorch-image="${NVIDIA_PYTORCH_IMAGE}" \
+      local-inference.pytorch.repo="${PYTORCH_REPO}" \
+      local-inference.pytorch.ref="${PYTORCH_REF}" \
+      local-inference.pytorch.commit="${PYTORCH_COMMIT}" \
+      local-inference.pytorch.version="${PYTORCH_VERSION}" \
+      local-inference.torchvision.repo="${TORCHVISION_REPO}" \
+      local-inference.torchvision.ref="${TORCHVISION_REF}" \
+      local-inference.torchvision.commit="${TORCHVISION_COMMIT}" \
+      local-inference.torchvision.version="${TORCHVISION_VERSION}" \
+      local-inference.nccl.repo="${NCCL_REPO}" \
+      local-inference.nccl.ref="${NCCL_REF}" \
+      local-inference.nccl.commit="${NCCL_COMMIT}" \
+      local-inference.nccl.version="${NCCL_VERSION}" \
+      local-inference.xgrammar.repo="${XGRAMMAR_REPO}" \
+      local-inference.xgrammar.ref="${XGRAMMAR_REF}" \
+      local-inference.xgrammar.commit="${XGRAMMAR_COMMIT}" \
+      local-inference.xgrammar.version="${XGRAMMAR_VERSION}" \
+      local-inference.transformers.minimum-version="${TRANSFORMERS_MIN_VERSION}"

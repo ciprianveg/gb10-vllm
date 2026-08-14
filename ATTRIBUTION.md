@@ -103,6 +103,33 @@ GLM-5.2 (744B/40B MoE, GlmMoeDsa)
           └─ cyankiwi (quantization)
 ```
 
+## KIMI-K3 v2 (sm121 image + RedHat DSpark)
+
+The `kimi-k3/v2` image is built from the **rtx6kpro / blackwell-llm-docker** lineage
+(qualified runtime, see [`kimi-k3/v2/BUILD-SM121-IMAGE.md`](kimi-k3/v2/BUILD-SM121-IMAGE.md)):
+
+| Project | Repo / Source | License | Used For |
+|---------|---------------|---------|----------|
+| **rtx6kpro** | [local-inference-lab/rtx6kpro](https://github.com/local-inference-lab/rtx6kpro) | — | Qualified runtime reference (PyTorch 2.13 / CUDA 13.3 stack) |
+| **blackwell-llm-docker** | [local-inference-lab/blackwell-llm-docker](https://github.com/local-inference-lab/blackwell-llm-docker) @ `697f50ff` | — | Build scripts + integration-lock patch system |
+| **vLLM** | [local-inference-lab/vllm](https://github.com/local-inference-lab/vllm) branch `integration/kimi-k3-ii-cu133-torch213-20260811` @ `881ac39` | Apache-2.0 | vLLM fork with B12X + DSpark + DFlash (sm121 unified-memory fixes) |
+| **b12x** | [local-inference-lab/b12x](https://github.com/local-inference-lab/b12x) tree `2e6092a` (PRs #124/#138/#139) | Apache-2.0 | CuTe DSL kernels for SM120/SM121 MLA |
+| **FlashInfer** | flashinfer `0.6.15.post1` | Apache-2.0 | Attention kernels |
+| **InstantTensor** | [voipmonitor/InstantTensor](https://github.com/voipmonitor/InstantTensor) @ `49b4010` | — | Fast model weight loading |
+| **Triton kernels** | [triton-lang/triton](https://github.com/triton-lang/triton) `v3.5.1` | MIT | Triton kernels for GB10 |
+| **NCCL** | [local-inference-lab/nccl-canonical](https://github.com/local-inference-lab/nccl-canonical) `canonical/cu133-nccl2312-amd-turin` | BSD-3-Clause | NCCL 2.31.2 |
+| **RedHat DSpark draft** | [RedHatAI/Kimi-K3-speculator.dspark](https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark) | — | DSpark draft model (used by v2 recipes) |
+| **Inferact DSpark draft** | [Inferact/Kimi-K3-DSpark](https://huggingface.co/Inferact/Kimi-K3-DSpark) | — | Inferact DSpark draft (v1 recipes) |
+| **DFlash draft** | [modal-labs/Kimi-K3-DFlash](https://huggingface.co/modal-labs/Kimi-K3-DFlash) | — | DFlash draft (alt backend) |
+| **Kimi-K3 weights** | [moonshotai/Kimi-K3](https://huggingface.co/moonshotai/Kimi-K3) | — | Kimi-K3 model weights (BF16 attention + MXFP4 experts) |
+| **eugr/spark-vllm-docker** | [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker) | Apache-2.0 | Build harness + cluster launcher (recipe runner) |
+
+### KIMI-K3 v2 Runtime Mods
+
+TP16 needs no mods (all fixes baked into the fork's integration branch). The
+TP8+PP2 recipe applies the external [`fix-pp2-sm121`](kimi-k3/v2/mods/fix-pp2-sm121/)
+mod (PP2 + DSpark infra fixes) at container start.
+
 ## Build Systems
 
 - **v16 build:** `eugr/spark-vllm-docker` (multi-stage Dockerfile, wheel caching, SCP parallel deploy, recipe runner)

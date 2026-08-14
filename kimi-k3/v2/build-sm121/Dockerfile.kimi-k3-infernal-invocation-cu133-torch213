@@ -1,0 +1,366 @@
+# syntax=docker/dockerfile:1.7
+
+ARG BASE_IMAGE=voipmonitor/vllm:kimi-k3-cu133-torch213-nccl2312-20260811-r2
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG BASE_IMAGE_ID
+ARG VLLM_REPO
+ARG VLLM_REF
+ARG VLLM_COMMIT
+ARG VLLM_PATCH_FILE
+ARG VLLM_PATCH_SHA256
+ARG VLLM_INTEGRATION_TREE
+ARG VLLM_INTEGRATION_LOCK_SHA256
+ARG VLLM_PRS
+ARG B12X_REPO
+ARG B12X_REF
+ARG B12X_COMMIT
+ARG B12X_PATCH_FILE
+ARG B12X_PATCH_SHA256
+ARG B12X_INTEGRATION_TREE
+ARG B12X_INTEGRATION_LOCK_SHA256
+ARG B12X_PRS
+ARG INSTANTTENSOR_REPO=https://github.com/voipmonitor/InstantTensor.git
+ARG INSTANTTENSOR_REF=49b4010afc1cae0441e71fe0b0bffc24fa05e932
+ARG INSTANTTENSOR_COMMIT=49b4010afc1cae0441e71fe0b0bffc24fa05e932
+ARG INSTANTTENSOR_VERSION=0.1.9
+ARG INSTANTTENSOR_LIBAIO_REPO=https://github.com/1g4-mirror/libaio.git
+ARG INSTANTTENSOR_LIBAIO_COMMIT=1b18bfafc6a2f7b9fa2c6be77a95afed8b7be448
+ARG INSTANTTENSOR_LIBAIO_TREE=c9442e111b747e9329ea782c6edb9d13a827cc08
+ARG CUTLASS_DSL_VERSION=4.6.0
+ARG TORCHVISION_VERSION=0.28.0
+ARG CACHE_FINGERPRINT
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:${PATH} \
+    TORCH_CUDA_ARCH_LIST=12.1a \
+    CMAKE_CUDA_ARCHITECTURES=121a \
+    NVCC_THREADS=4 \
+    PYTHONPATH=/opt/kimi-k3/vllm:/opt/kimi-k3/b12x \
+    SPARKINFER_DIR=/opt/kimi-k3/b12x \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    CUDA_DEVICE_ORDER=PCI_BUS_ID \
+    NCCL_IB_DISABLE=1 \
+    NCCL_P2P_LEVEL=SYS \
+    NCCL_P2P_DISABLE=0 \
+    NCCL_CUMEM_ENABLE=0 \
+    NCCL_PROTO=LL,LL128,Simple
+
+# Cache paths include both composed source trees. Target-only, DSpark, and
+# DFlash profiles use separate host volumes so compiled modules cannot cross
+# profile boundaries.
+ENV LOCAL_INFERENCE_CACHE_FINGERPRINT=${CACHE_FINGERPRINT} \
+    XDG_CACHE_HOME=/cache/jit/${CACHE_FINGERPRINT} \
+    VLLM_CACHE_ROOT=/cache/jit/${CACHE_FINGERPRINT}/vllm \
+    VLLM_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/vllm \
+    TRITON_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/triton \
+    TORCH_EXTENSIONS_DIR=/cache/jit/${CACHE_FINGERPRINT}/torch-extensions \
+    TORCHINDUCTOR_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/torchinductor \
+    VLLM_FLASHINFER_AUTOTUNE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/flashinfer-autotune \
+    TVM_FFI_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/tvm-ffi \
+    TVM_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/tvm \
+    TILELANG_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/tilelang \
+    CUTE_DSL_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/cute-dsl \
+    B12X_CUTE_COMPILE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/b12x/cute \
+    B12X_COMPILE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/b12x/compile \
+    SPARKINFER_COMPILE_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/b12x/compile \
+    DG_JIT_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/deep-gemm \
+    MM_SPARSE_ATTN_AOT_CACHE=/cache/jit/${CACHE_FINGERPRINT}/minfer/mm-sparse-attn \
+    MINFER_FMHA_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/minfer/fmha-sm121 \
+    NUMBA_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/numba \
+    CUDA_CACHE_PATH=/cache/jit/${CACHE_FINGERPRINT}/cuda \
+    CUPY_CACHE_DIR=/cache/jit/${CACHE_FINGERPRINT}/cupy \
+    HF_HOME=/root/.cache/huggingface
+
+COPY patches /tmp/release-patches
+
+# Each component starts at the commit recorded in its integration lock. The
+# patch digest and resulting Git tree make the source composition verifiable.
+RUN set -eux; \
+    mkdir -p /opt/kimi-k3; \
+    compose_source() { \
+      component="$1"; destination="$2"; repository="$3"; reference="$4"; \
+      commit="$5"; patch_file="$6"; patch_sha256="$7"; expected_tree="$8"; \
+      git clone --filter=blob:none --no-checkout "${repository}" "${destination}"; \
+      git -C "${destination}" fetch --filter=blob:none origin "${reference}"; \
+      git -C "${destination}" checkout --detach "${commit}"; \
+      test "$(git -C "${destination}" rev-parse HEAD)" = "${commit}"; \
+      patch_path="/tmp/release-patches/${patch_file}"; \
+      test -f "${patch_path}"; \
+      echo "${patch_sha256}  ${patch_path}" | sha256sum -c -; \
+      if test -s "${patch_path}"; then \
+        git -C "${destination}" apply "${patch_path}"; \
+      fi; \
+      git -C "${destination}" add -A; \
+      actual_tree="$(git -C "${destination}" write-tree)"; \
+      test "${actual_tree}" = "${expected_tree}" || { \
+        echo "${component} tree ${actual_tree} does not match ${expected_tree}" >&2; \
+        exit 1; \
+      }; \
+    }; \
+    compose_source vllm /opt/kimi-k3/vllm \
+      "${VLLM_REPO}" "${VLLM_REF}" "${VLLM_COMMIT}" \
+      "${VLLM_PATCH_FILE}" "${VLLM_PATCH_SHA256}" "${VLLM_INTEGRATION_TREE}"; \
+    compose_source b12x /opt/kimi-k3/b12x \
+      "${B12X_REPO}" "${B12X_REF}" "${B12X_COMMIT}" \
+      "${B12X_PATCH_FILE}" "${B12X_PATCH_SHA256}" "${B12X_INTEGRATION_TREE}"; \
+    rm -rf /tmp/release-patches
+
+# The virtual environment inherits the CUDA 13.3 and stable PyTorch 2.13
+# packages from the NVIDIA-derived base. CUTLASS DSL 4.6 requires protobuf 6;
+# the NGC grpcio-tools build utility requires protobuf 7 and is only consumed
+# by the NGC resiliency extension. Neither package is part of the Kimi
+# inference interface, so both are removed before dependency resolution.
+RUN python -m pip uninstall --yes grpcio-tools nvidia-resiliency-ext \
+ && python -m venv --system-site-packages /opt/venv \
+ && grep -v '^torch==' /opt/kimi-k3/vllm/requirements/build/cuda.txt \
+      > /tmp/vllm-build-without-torch.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip \
+ && python -m pip install -r /tmp/vllm-build-without-torch.txt \
+ && python -m pip install -r /opt/kimi-k3/vllm/requirements/common.txt \
+ && python -m pip install \
+      'numba==0.65.0' \
+      'fastsafetensors>=0.3.2' \
+      'nvidia-cudnn-frontend>=1.19.1' \
+      "nvidia-cutlass-dsl[cu13]==${CUTLASS_DSL_VERSION}" \
+ && python -m pip install --force-reinstall --no-deps \
+      "nvidia-cutlass-dsl-libs-cu13==${CUTLASS_DSL_VERSION}" \
+ && python -m pip check
+
+# InstantTensor supplies the distributed Safetensors loader used by all Kimi
+# serving profiles. The selected revision bounds host registration and falls
+# back to runtime-pinned buffers when a large registration is unavailable.
+# Its libaio submodule is fetched from a GitHub mirror because the canonical
+# Pagure host is not reachable from every build network. Both the commit and
+# Git tree must match the submodule object recorded by InstantTensor.
+RUN git clone --filter=blob:none --no-checkout \
+      "${INSTANTTENSOR_REPO}" /tmp/instanttensor-src \
+ && git -C /tmp/instanttensor-src fetch --depth=1 origin "${INSTANTTENSOR_REF}" \
+ && git -C /tmp/instanttensor-src checkout --detach "${INSTANTTENSOR_COMMIT}" \
+ && test "$(git -C /tmp/instanttensor-src rev-parse HEAD)" = "${INSTANTTENSOR_COMMIT}" \
+ && test "$(git -C /tmp/instanttensor-src ls-tree HEAD \
+      csrc/third_party/libaio | awk '{print $3}')" = \
+      "${INSTANTTENSOR_LIBAIO_COMMIT}" \
+ && git -C /tmp/instanttensor-src config \
+      submodule.csrc/third_party/libaio.url "${INSTANTTENSOR_LIBAIO_REPO}" \
+ && git -C /tmp/instanttensor-src submodule update --init --recursive \
+ && test "$(git -C /tmp/instanttensor-src/csrc/third_party/libaio rev-parse HEAD)" = \
+      "${INSTANTTENSOR_LIBAIO_COMMIT}" \
+ && test "$(git -C /tmp/instanttensor-src/csrc/third_party/libaio \
+      rev-parse 'HEAD^{tree}')" = "${INSTANTTENSOR_LIBAIO_TREE}" \
+ && python -m pip install --no-build-isolation --no-deps \
+      --force-reinstall /tmp/instanttensor-src \
+ && rm -rf /tmp/instanttensor-src
+
+RUN python -m pip install --no-build-isolation --no-deps \
+      --force-reinstall /opt/kimi-k3/b12x
+
+WORKDIR /opt/kimi-k3/vllm
+
+# Native extensions are compiled from the composed infernal-invocation source
+# against the packaged PyTorch 2.13 ABI. The source tree remains importable
+# through PYTHONPATH and contains every extension required by the Kimi profiles.
+RUN --mount=type=cache,id=kimi-k3-infernal-vllm-extensions,target=/tmp/vllm-extensions,sharing=locked \
+    set -eux; \
+    cmake -S . -B /tmp/vllm-extensions -G Ninja \
+      -U MARLIN_GEN_SCRIPT_HASH_AND_ARCH \
+      -U MOE_MARLIN_GEN_SCRIPT_HASH_AND_ARCH \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CUDA_ARCHITECTURES=75 \
+      -DVLLM_TARGET_DEVICE=cuda \
+      -DVLLM_PYTHON_EXECUTABLE=/opt/venv/bin/python \
+      -DNVCC_THREADS=4; \
+    cmake --build /tmp/vllm-extensions --parallel 48; \
+    find /tmp/vllm-extensions -name '*.abi3.so' > /tmp/vllm-extension-list; \
+    while IFS= read -r extension; do \
+      case "${extension}" in \
+        */vllm-flash-attn/*) destination=/opt/kimi-k3/vllm/vllm/vllm_flash_attn ;; \
+        */_deps/*) continue ;; \
+        *) destination=/opt/kimi-k3/vllm/vllm ;; \
+      esac; \
+      cp "${extension}" "${destination}/$(basename "${extension}")"; \
+    done < /tmp/vllm-extension-list; \
+    for extension in \
+      _C_stable_libtorch.abi3.so \
+      _flashkda_C.abi3.so \
+      _moe_C_stable_libtorch.abi3.so \
+      _qutlass_C.abi3.so \
+      cumem_allocator.abi3.so \
+      fs_io_C.abi3.so \
+      spinloop.abi3.so; do \
+      test -f "/opt/kimi-k3/vllm/vllm/${extension}"; \
+    done; \
+    test -f /opt/kimi-k3/vllm/vllm/vllm_flash_attn/_vllm_fa2_C.abi3.so; \
+    test -f /opt/kimi-k3/vllm/vllm/vllm_flash_attn/_vllm_fa3_C.abi3.so; \
+    rm -f /tmp/vllm-extension-list
+
+ARG TRITON_KERNELS_REPO=https://github.com/triton-lang/triton.git
+ARG TRITON_KERNELS_REF=v3.5.1
+ARG TRITON_KERNELS_COMMIT=0add68262ab0a2e33b84524346cb27cbb2787356
+ARG VLLM_PACKAGE_VERSION
+
+# The dev/infernal-invocation source imports the OpenAI Triton 3.5.1 kernel
+# library as a top-level package. NVIDIA Triton 3.7.1 supplies the compiler,
+# but its bundled kernel
+# library removed matmul_ogs, so the vLLM-pinned Python kernels are installed
+# without replacing the NVIDIA Triton compiler.
+RUN git clone --filter=blob:none --no-checkout \
+      "${TRITON_KERNELS_REPO}" /tmp/triton-kernels-src \
+ && git -C /tmp/triton-kernels-src fetch --depth=1 origin "${TRITON_KERNELS_REF}" \
+ && git -C /tmp/triton-kernels-src checkout --detach "${TRITON_KERNELS_COMMIT}" \
+ && test "$(git -C /tmp/triton-kernels-src rev-parse HEAD)" = \
+      "${TRITON_KERNELS_COMMIT}" \
+ && source_dir=/tmp/triton-kernels-src/python/triton_kernels/triton_kernels \
+ && destination=/opt/kimi-k3/vllm/vllm/third_party/triton_kernels \
+ && test -f "${source_dir}/matmul_ogs.py" \
+ && mkdir -p "${destination}" \
+ && while IFS= read -r source_file; do \
+      relative_path="${source_file#${source_dir}/}"; \
+      install -D -m 0644 "${source_file}" "${destination}/${relative_path}"; \
+    done < <(find "${source_dir}" -type f -name '*.py' -print) \
+ && site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')" \
+ && test ! -e "${site_packages}/triton_kernels" \
+ && ln -s "${destination}" "${site_packages}/triton_kernels" \
+ && rm -rf /tmp/triton-kernels-src
+
+# vLLM platform detection reads installed package metadata, and Kimi's native
+# tokenizer mode uses the Rust parser and renderer. Native CUDA extensions are
+# already present in the source tree, so VLLM_TARGET_DEVICE=empty installs the
+# Python package, command entrypoint, and Rust artifacts without rebuilding or
+# replacing the CUDA extension set.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain none --no-modify-path \
+ && source /root/.cargo/env \
+ && rust_toolchain="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)" \
+ && test -n "${rust_toolchain}" \
+ && rustup toolchain install "${rust_toolchain}" \
+ && rustup default "${rust_toolchain}" \
+ && python tools/build_rust.py --release \
+ && test -x vllm/vllm-rs \
+ && test "$(find vllm -maxdepth 1 -name '_rust_tool_parser*.so' | wc -l)" -eq 1 \
+ && VLLM_TARGET_DEVICE=empty \
+      VLLM_VERSION_OVERRIDE="${VLLM_PACKAGE_VERSION}" \
+      VLLM_REQUIRE_RUST_FRONTEND=1 \
+      python -m pip install --no-build-isolation --no-deps --force-reinstall . \
+ && test "$(python -c 'import importlib.metadata as m; print(m.version("vllm"))')" = \
+      "${VLLM_PACKAGE_VERSION}" \
+ && site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')" \
+ && test -x "${site_packages}/vllm/vllm-rs" \
+ && test "$(find "${site_packages}/vllm" -maxdepth 1 \
+      -name '_rust_tool_parser*.so' | wc -l)" -eq 1 \
+ && rm -rf /root/.cargo /root/.rustup target rust/target
+
+ARG FLASHINFER_VERSION=0.6.15.post1
+
+# The Kimi-K3 CUDA dependency contract uses FlashInfer for top-p/top-k sampling.
+# Kimi attention and MoE execution remain on B12X; installing the matching
+# Python and cubin packages prevents the sampler feature probe from importing
+# an absent backend. Dependency resolution must retain the stable PyTorch and
+# native CUDA libraries supplied by the base image.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install \
+      --extra-index-url https://flashinfer.ai/whl/ \
+      "flashinfer-python==${FLASHINFER_VERSION}" \
+      "flashinfer-cubin==${FLASHINFER_VERSION}" \
+ && test "$(python -c 'import torch; print(torch.__version__)')" = "2.13.0" \
+ && test "$(python -c 'import torch; print(torch.version.cuda)')" = "13.3" \
+ && python -m pip check
+
+# Kimi-K3 quantization uses compressed-tensors and B12X kernels. The optional
+# TorchAO package from the NVIDIA base queries CUDA device capabilities during
+# import through Transformers, which makes a CUDA-clean worker forkserver
+# impossible under PyTorch 2.13. Remove the unused package with the system
+# interpreter because it is installed outside the virtual environment.
+RUN /usr/bin/python -m pip uninstall --yes torchao \
+ && python -m pip check
+
+COPY tests/verify_kimi_k3_cu133_runtime.py /opt/local-inference/verify_kimi_k3_cu133_runtime.py
+
+RUN mkdir -p "/cache/jit/${CACHE_FINGERPRINT}" \
+ && python /opt/local-inference/verify_kimi_k3_cu133_runtime.py \
+      --instanttensor-version "${INSTANTTENSOR_VERSION}" \
+      --cutlass-dsl-version "${CUTLASS_DSL_VERSION}" \
+      --flashinfer-version "${FLASHINFER_VERSION}" \
+      --torchvision-version "${TORCHVISION_VERSION}" \
+      --vllm-version "${VLLM_PACKAGE_VERSION}" \
+      --runtime-label "infernal-invocation" \
+      --vllm-source-root /opt/kimi-k3/vllm \
+      --b12x-source-root /opt/kimi-k3/b12x \
+ && for launcher in \
+      serve-kimi-k3-full-mxfp4-dcp16-1m-no-spec.sh \
+      serve-kimi-k3-full-mxfp4-dcp16-1m-dspark.sh \
+      serve-kimi-k3-full-mxfp4-dcp16-1m-dflash.sh; do \
+      test -x "${launcher}"; \
+      bash -n "${launcher}"; \
+    done \
+ && python -m pip check
+
+COPY --chmod=0755 launchers/serve-kimi-k3-infernal-invocation-nospec /usr/local/bin/serve-kimi-k3-nospec
+COPY --chmod=0755 launchers/serve-kimi-k3-infernal-invocation-dspark /usr/local/bin/serve-kimi-k3-dspark
+COPY --chmod=0755 launchers/serve-kimi-k3-infernal-invocation-dflash /usr/local/bin/serve-kimi-k3-dflash
+
+ARG RELEASE_NAME
+ARG RELEASE_DATE
+ARG DOCKER_COMMIT
+
+LABEL org.opencontainers.image.title="Kimi-K3 dev/infernal-invocation CUDA 13.3 PyTorch 2.13 runtime" \
+      org.opencontainers.image.description="Pinned infernal-invocation and B12X Kimi-K3 serving runtime on stable PyTorch 2.13 and CUDA 13.3" \
+      org.opencontainers.image.source="https://github.com/local-inference-lab/blackwell-llm-docker" \
+      org.opencontainers.image.version="${RELEASE_DATE}" \
+      org.opencontainers.image.revision="${DOCKER_COMMIT}" \
+      local-inference.release.name="${RELEASE_NAME}" \
+      local-inference.docker.commit="${DOCKER_COMMIT}" \
+      local-inference.runtime.base-image="${BASE_IMAGE}" \
+      local-inference.runtime.base-id="${BASE_IMAGE_ID}" \
+      local-inference.cache.fingerprint="${CACHE_FINGERPRINT}" \
+      local-inference.vllm.repo="${VLLM_REPO}" \
+      local-inference.vllm.branch="${VLLM_REF}" \
+      local-inference.vllm.commit="${VLLM_COMMIT}" \
+      local-inference.vllm.integration.prs="${VLLM_PRS}" \
+      local-inference.vllm.integration.tree="${VLLM_INTEGRATION_TREE}" \
+      local-inference.vllm.patch_file="${VLLM_PATCH_FILE}" \
+      local-inference.vllm.patch_sha256="${VLLM_PATCH_SHA256}" \
+      local-inference.vllm.integration.lock_sha256="${VLLM_INTEGRATION_LOCK_SHA256}" \
+      local-inference.vllm.package-version="${VLLM_PACKAGE_VERSION}" \
+      local-inference.b12x.repo="${B12X_REPO}" \
+      local-inference.b12x.branch="${B12X_REF}" \
+      local-inference.b12x.commit="${B12X_COMMIT}" \
+      local-inference.b12x.integration.prs="${B12X_PRS}" \
+      local-inference.b12x.integration.tree="${B12X_INTEGRATION_TREE}" \
+      local-inference.b12x.patch_file="${B12X_PATCH_FILE}" \
+      local-inference.b12x.patch_sha256="${B12X_PATCH_SHA256}" \
+      local-inference.b12x.integration.lock_sha256="${B12X_INTEGRATION_LOCK_SHA256}" \
+      local-inference.instanttensor.repo="${INSTANTTENSOR_REPO}" \
+      local-inference.instanttensor.ref="${INSTANTTENSOR_REF}" \
+      local-inference.instanttensor.commit="${INSTANTTENSOR_COMMIT}" \
+      local-inference.instanttensor.version="${INSTANTTENSOR_VERSION}" \
+      local-inference.instanttensor.libaio.repo="${INSTANTTENSOR_LIBAIO_REPO}" \
+      local-inference.instanttensor.libaio.commit="${INSTANTTENSOR_LIBAIO_COMMIT}" \
+      local-inference.instanttensor.libaio.tree="${INSTANTTENSOR_LIBAIO_TREE}" \
+      local-inference.cutlass-dsl.version="${CUTLASS_DSL_VERSION}" \
+      local-inference.flashinfer.version="${FLASHINFER_VERSION}" \
+      local-inference.torchvision.version="${TORCHVISION_VERSION}" \
+      local-inference.triton-kernels.repo="${TRITON_KERNELS_REPO}" \
+      local-inference.triton-kernels.ref="${TRITON_KERNELS_REF}" \
+      local-inference.triton-kernels.commit="${TRITON_KERNELS_COMMIT}"
+
+LABEL local-inference.sparkinfer.repo="${B12X_REPO}" \
+      local-inference.sparkinfer.branch="${B12X_REF}" \
+      local-inference.sparkinfer.commit="${B12X_COMMIT}" \
+      local-inference.sparkinfer.integration.prs="${B12X_PRS}" \
+      local-inference.sparkinfer.integration.tree="${B12X_INTEGRATION_TREE}"
+
+# The runtime is single-host TP16. Disable the inherited Spectrum-X network
+# and tuner plugins so PCIe collectives use the packaged NCCL topology policy
+# without an unrelated InfiniBand plugin modifying algorithm selection.
+ENV NCCL_VERSION=2.31.2 \
+    NCCL_NET_PLUGIN=none \
+    NCCL_TUNER_PLUGIN=none \
+    FLASHINFER_WORKSPACE_BASE=/cache/jit/${CACHE_FINGERPRINT}/flashinfer
+
+ENTRYPOINT ["/usr/local/bin/serve-kimi-k3-dspark"]
