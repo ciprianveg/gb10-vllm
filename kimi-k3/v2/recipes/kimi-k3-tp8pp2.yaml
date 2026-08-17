@@ -20,7 +20,7 @@ defaults:
   model_path: /root/models/models115/Kimi-K3
   draft_model_path: /root/models/models11/RedHatAI-Kimi-K3-dspark
 
-mods: [mods/pr51508-stale-zero-accept, mods/pr51036-repetition-detection, mods/pr46324-piecewise-spec-capture, mods/pr50169-drafter-kv-pool, mods/pr46932-uma-cudagraph-mem, mods/pr47926-dspark-prefix-mask, mods/fix-pp2-sm121]
+mods: [mods/pr51508-stale-zero-accept, mods/pr51036-repetition-detection, mods/pr46324-piecewise-spec-capture, mods/pr50169-drafter-kv-pool, mods/pr46932-uma-cudagraph-mem, mods/pr47926-dspark-prefix-mask, mods/fix-pp2-sm121, mods/fix-mamba-cow-external-hit, mods/fix-k3-renderer-split-turns, mods/fix-dcp-hybrid-prefix-cache-hits]
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
@@ -68,17 +68,20 @@ command: |
   vllm serve {model_path} \
     --served-model-name KIMI-K3 \
     --attention-backend B12X_MLA \
+    --kda-prefill-backend triton \
     --tensor-parallel-size 8 \
     --pipeline-parallel-size 2 \
     --distributed-executor-backend ray \
     --moe-backend marlin \
     --kv-cache-dtype fp8 \
     --load-format instanttensor \
-    --gpu-memory-utilization 0.909 \
+    --gpu-memory-utilization 0.899 \
     --max-model-len auto \
     --host 0.0.0.0 --port 5001 \
     --trust-remote-code \
     --async-scheduling \
+    --enable-chunked-prefill \
+    --enable-prefix-caching \
     --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":6,"draft_tensor_parallel_size":1,"attention_backend":"TRITON_ATTN"}}' \
     --max-num-batched-tokens 4096 \
     --attention-config '{{"use_prefill_query_quantization":true}}' \

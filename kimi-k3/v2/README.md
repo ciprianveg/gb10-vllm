@@ -101,7 +101,10 @@ Overall decode tok/s : 24.87
 
 Both recipes apply a set of **performance mods** at container start — upstream vLLM
 PRs backported to the `881ac39` fork. Together they give **~7% decode speed** on
-both TP16 and TP8+PP2:
+both TP16 and TP8+PP2, and both enable **prefix caching + chunked prefill**
+(`--enable-prefix-caching --enable-chunked-prefill`) so the prefix-cache mods
+above are active. Command flags follow the eugr harness's tuned config
+(`--kda-prefill-backend triton`, `--max-num-batched-tokens 4096`):
 
 | Mod | Upstream PR | What it does |
 |---|---|---|
@@ -111,6 +114,9 @@ both TP16 and TP8+PP2:
 | `pr50169-drafter-kv-pool` | #50169 | Dedicated KV groups for sliding-window drafters (GB10 pool 415k → 871k) |
 | `pr46932-uma-cudagraph-mem` | #46932 | Fix CUDA-graph memory accounting on unified-memory (GB10) |
 | `pr47926-dspark-prefix-mask` | #47926 | Mask prefix-cache-restored tokens out of the DSpark draft context |
+| `fix-mamba-cow-external-hit` | #395 | Preserve Mamba/KDA copy-on-write after external prefix-cache hits |
+| `fix-k3-renderer-split-turns` | #395 | Merge split Kimi-K3 prose+tool_calls turns; preserve reasoning (agentic transcript fix) |
+| `fix-dcp-hybrid-prefix-cache-hits` | #401 | Allow hash-aligned DCP hybrid prefix hits (active once prefix caching is enabled) |
 | `fix-pp2-sm121` | — (TP8+PP2 only) | PP2 + DSpark infra fixes: draft PP=1, aux-hidden-state-over-PP, EAGLE3+PP guard removal, embed-tokens sharing |
 
 Copy the mods into your eugr harness's `mods/` dir before running (the recipes'
@@ -146,8 +152,9 @@ integration branch; these mods are runtime performance backports only.
   with `TRITON_ATTN` — the v2 recipes use `num_speculative_tokens: 6`.
 - **TP16 is now the recommended path** (~500K ctx, fastest). v1 recommended PP2
   because TP16 only fit ~200K; v2's TP16 fits ~500K.
-- **Performance mods** (both recipes): 6 upstream PR backports applied at
-  container start (~7% decode speedup over the unmodded v2 config).
+- **Performance mods** (both recipes): 6 upstream PR backports + 3 PR #395/#401
+  fixes applied at container start (~7% decode speedup over the unmodded v2
+  config). Prefix caching + chunked prefill enabled to match the eugr harness.
 
 ## Directory structure
 

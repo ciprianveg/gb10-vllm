@@ -1,0 +1,134 @@
+diff --git a/vllm/renderers/kimi_k3.py b/vllm/renderers/kimi_k3.py
+index e0f937f2e6ce..a8eb2bece5f4 100644
+--- a/vllm/renderers/kimi_k3.py
++++ b/vllm/renderers/kimi_k3.py
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++from collections.abc import Mapping
+ from typing import Any, cast
+ 
+ from vllm.config import VllmConfig
+@@ -24,6 +25,7 @@
+ # and request-level media_io_kwargs still take precedence over this default.
+ _K3_MEDIA_IO_DEFAULTS: dict[str, dict[str, Any]] = {"image": {"image_mode": None}}
+ _K3_THINKING_EFFORTS = ("low", "high", "max")
++_K3_REASONING_KEYS = ("reasoning_content", "reasoning", "thinking")
+ 
+ 
+ def _merge_k3_media_io_kwargs(
+@@ -64,6 +66,92 @@ def _apply_k3_thinking_kwargs(kwargs: dict[str, Any]) -> None:
+         )
+ 
+ 
++def _is_prose_only_assistant(message: Mapping[str, Any]) -> bool:
++    """Return whether a message contains only assistant prose.
++
++    Args:
++        message: Chat message to classify.
++
++    Returns:
++        ``True`` when the message is an assistant message with string content
++        and no tool calls.
++    """
++    if message.get("role") != "assistant" or message.get("tool_calls"):
++        return False
++    return isinstance(message.get("content"), str)
++
++
++def _is_toolcall_only_assistant(message: Mapping[str, Any]) -> bool:
++    """Return whether a message contains only assistant tool calls.
++
++    Args:
++        message: Chat message to classify.
++
++    Returns:
++        ``True`` when the message is an assistant message with tool calls and
++        no non-whitespace prose.
++    """
++    if message.get("role") != "assistant" or not message.get("tool_calls"):
++        return False
++    content = message.get("content")
++    return content is None or (isinstance(content, str) and not content.strip())
++
++
++def _merge_k3_split_assistant_turns(
++    messages: list[ChatCompletionMessageParam],
++) -> list[ChatCompletionMessageParam]:
++    """Merge adjacent (prose-only, tool_calls-only) assistant pairs.
++
++    OpenAI-compatible gateways may split one logical assistant turn into a
++    prose-only message followed by a tool_calls-only message. K3's XTML
++    encoder renders each list entry as its own ``<|open|>message
++    role="assistant"`` block, so the split shape teaches the model
++    in-context that a prose-only assistant message with no tool section is a
++    normal terminal turn — measurably increasing prose-only stops mid-way
++    through agentic workflows. One logical turn must render as one XTML
++    message: prose in the response channel and calls in the tools section.
++
++    Only the exact split shape is merged. Pairs where both halves carry
++    reasoning fields are left untouched, so distinct reasoning payloads remain
++    distinct turns.
++
++    Args:
++        messages: Validated request messages before content parsing.
++
++    Returns:
++        A new message list with eligible adjacent assistant pairs merged.
++        Caller-owned message dictionaries are not mutated.
++    """
++    merged: list[ChatCompletionMessageParam] = []
++    index = 0
++    while index < len(messages):
++        message: Mapping[str, Any] = messages[index]
++        nxt: Mapping[str, Any] | None = (
++            messages[index + 1] if index + 1 < len(messages) else None
++        )
++        if (
++            nxt is not None
++            and _is_prose_only_assistant(message)
++            and _is_toolcall_only_assistant(nxt)
++            and not (
++                any(message.get(key) for key in _K3_REASONING_KEYS)
++                and any(nxt.get(key) for key in _K3_REASONING_KEYS)
++            )
++        ):
++            unified = dict(nxt)
++            unified["content"] = message.get("content")
++            for key in _K3_REASONING_KEYS:
++                value = message.get(key)
++                if value and not unified.get(key):
++                    unified[key] = value
++            merged.append(cast(ChatCompletionMessageParam, unified))
++            index += 2
++            continue
++        merged.append(messages[index])
++        index += 1
++    return merged
++
++
+ def _normalize_k3_tool_messages(
+     conversation: list[ConversationMessage],
+ ) -> list[dict[str, Any]]:
+@@ -177,8 +265,9 @@ def render_messages(
+         messages: list[ChatCompletionMessageParam],
+         params: ChatParams,
+     ) -> tuple[list[ConversationMessage], DictPrompt]:
++        merged_messages = _merge_k3_split_assistant_turns(messages)
+         conversation, mm_data, mm_uuids = parse_chat_messages(
+-            messages,
++            merged_messages,
+             self.model_config,
+             content_format="string",
+             media_io_kwargs=_merge_k3_media_io_kwargs(params.media_io_kwargs),
+@@ -201,8 +290,9 @@ async def render_messages_async(
+         messages: list[ChatCompletionMessageParam],
+         params: ChatParams,
+     ) -> tuple[list[ConversationMessage], DictPrompt]:
++        merged_messages = _merge_k3_split_assistant_turns(messages)
+         conversation, mm_data, mm_uuids = await parse_chat_messages_async(
+-            messages,
++            merged_messages,
+             self.model_config,
+             content_format="string",
+             media_io_kwargs=_merge_k3_media_io_kwargs(params.media_io_kwargs),
