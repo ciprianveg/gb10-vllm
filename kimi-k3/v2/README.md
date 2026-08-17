@@ -49,6 +49,7 @@ Full reproducible two-step build guide:
 |---|---|---|---|---|---|
 | [`kimi-k3-tp16.yaml`](recipes/kimi-k3-tp16.yaml) | 16 | 1 | RedHat DSpark (Qwen3-GQA) | **~500K** | **Recommended** — full speed, ~21-25 tok/s single-stream |
 | [`kimi-k3-tp8pp2.yaml`](recipes/kimi-k3-tp8pp2.yaml) | 8 | 2 | RedHat DSpark (Qwen3-GQA) | **~1M** | Max context, ~20% slower than TP16 |
+| [`kimi-k3-dcp-tp16.yaml`](recipes/kimi-k3-dcp-tp16.yaml) | 16 (DCP16) | 1 | RedHat DSpark (Qwen3-GQA) | **~270K** | DCP16 KV split — targets long-context decode decline (KV re-read bound); context capped at 270K |
 
 Context on TP8+PP2: **~1M tokens** with a slightly increased
 `--gpu-memory-utilization` and `instanttensor` disabled, **~750K tokens** with
