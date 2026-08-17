@@ -1,0 +1,585 @@
+diff --git a/tests/kernels/test_fused_sigmoid_gating_delta_rule.py b/tests/kernels/test_fused_sigmoid_gating_delta_rule.py
+index fc923cb945f7..1b593ebc855d 100644
+--- a/tests/kernels/test_fused_sigmoid_gating_delta_rule.py
++++ b/tests/kernels/test_fused_sigmoid_gating_delta_rule.py
+@@ -197,3 +197,197 @@ def test_fused_sigmoid_gating_delta_rule_update_spec(
+     torch.testing.assert_close(
+         last_recurrent_state, last_recurrent_state_ref, atol=1e-2, rtol=1e-2
+     )
++
++
++@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
++def test_spec_decoding_null_state_row_leaves_state_untouched(
++    dtype: torch.dtype,
++) -> None:
++    """A stale spec row is signalled by NULL_BLOCK_ID state slots (written by
++    the GDN metadata builder when num_accepted_tokens == 0). The kernel must
++    skip such a row entirely: no initial-state read and, critically, no
++    final-state write, so a request whose step was discarded does not have its
++    recurrent state advanced. Live rows in the same batch must still update.
++    """
++    torch.set_default_device(DEVICE)
++    set_random_seed(0)
++    num_reqs, num_k_heads, num_v_heads = 2, 16, 32
++    head_k_dim = head_v_dim = 128
++    num_speculative_tokens = 3
++    num_tokens = num_reqs * (num_speculative_tokens + 1)
++    total_entries = num_tokens * 2
++
++    query = torch.rand(1, num_tokens, num_k_heads, head_k_dim, dtype=dtype)
++    key = torch.rand(1, num_tokens, num_k_heads, head_k_dim, dtype=dtype)
++    value = torch.rand(1, num_tokens, num_v_heads, head_v_dim, dtype=dtype)
++    A_log = torch.rand(num_v_heads, dtype=dtype)
++    dt_bias = torch.rand(num_v_heads, dtype=dtype)
++    a = torch.rand(num_tokens, num_v_heads, dtype=dtype)
++    b = torch.rand(num_tokens, num_v_heads, dtype=dtype)
++    # Entry 0 is reserved as NULL_BLOCK_ID, so valid indices start at 1.
++    ssm_state = torch.rand(
++        total_entries + 1, num_v_heads, head_k_dim, head_v_dim, dtype=dtype
++    )
++    state_indices = (torch.randperm(total_entries, dtype=torch.int32) + 1)[
++        :num_tokens
++    ].view(num_reqs, num_speculative_tokens + 1)
++    cu_seqlens = torch.arange(
++        0, num_tokens + 1, num_speculative_tokens + 1, dtype=torch.int32
++    )
++    beta = b.sigmoid()
++    g = -A_log.float().exp() * F.softplus(a.float() + dt_bias)
++
++    def run_gating(indices: torch.Tensor, accepted: torch.Tensor, state: torch.Tensor):
++        return fused_sigmoid_gating_delta_rule_update(
++            A_log=A_log,
++            a=a,
++            b=b,
++            dt_bias=dt_bias,
++            q=query,
++            k=key,
++            v=value,
++            initial_state=state,
++            inplace_final_state=True,
++            ssm_state_indices=indices,
++            cu_seqlens=cu_seqlens,
++            num_accepted_tokens=accepted,
++            use_qk_l2norm_in_kernel=True,
++        )
++
++    def run_recurrent(
++        indices: torch.Tensor, accepted: torch.Tensor, state: torch.Tensor
++    ):
++        return fused_recurrent_gated_delta_rule(
++            q=query,
++            k=key,
++            v=value,
++            g=g.unsqueeze(0),
++            beta=beta.unsqueeze(0),
++            initial_state=state,
++            inplace_final_state=True,
++            ssm_state_indices=indices,
++            cu_seqlens=cu_seqlens,
++            num_accepted_tokens=accepted,
++            use_qk_l2norm_in_kernel=True,
++        )
++
++    # Row 0 is stale: the builder nulls its slots and clamps its count to 1.
++    stale_indices = state_indices.clone()
++    stale_indices[0].fill_(0)
++    accepted = torch.tensor([1, 2], dtype=torch.int32)
++    stale_slots = state_indices[0].tolist()
++    live_slots = state_indices[1].tolist()
++
++    for run in (run_gating, run_recurrent):
++        state = ssm_state.clone()
++        before = state.clone()
++        run(stale_indices, accepted, state)
++        # The stale row's blocks must be bit-identical: no state advanced.
++        for slot in stale_slots:
++            torch.testing.assert_close(state[slot], before[slot], atol=0, rtol=0)
++        # The live row must still have written its final state.
++        assert not torch.equal(
++            state[live_slots[accepted[1].item() - 1]],
++            before[live_slots[accepted[1].item() - 1]],
++        )
++
++
++@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
++def test_spec_decoding_zero_accepted_tokens_is_in_bounds(dtype: torch.dtype) -> None:
++    """Defense in depth: even if a raw 0 reaches the kernel without the
++    builder having nulled the row, the slot index (num_accepted_tokens - 1)
++    must be clamped rather than indexing at -1. Run under compute-sanitizer
++    to catch the out-of-bounds read this guards against.
++    """
++    torch.set_default_device(DEVICE)
++    set_random_seed(0)
++    num_reqs, num_k_heads, num_v_heads = 2, 16, 32
++    head_k_dim = head_v_dim = 128
++    num_speculative_tokens = 3
++    num_tokens = num_reqs * (num_speculative_tokens + 1)
++    total_entries = num_tokens * 2
++
++    query = torch.rand(1, num_tokens, num_k_heads, head_k_dim, dtype=dtype)
++    key = torch.rand(1, num_tokens, num_k_heads, head_k_dim, dtype=dtype)
++    value = torch.rand(1, num_tokens, num_v_heads, head_v_dim, dtype=dtype)
++    A_log = torch.rand(num_v_heads, dtype=dtype)
++    dt_bias = torch.rand(num_v_heads, dtype=dtype)
++    a = torch.rand(num_tokens, num_v_heads, dtype=dtype)
++    b = torch.rand(num_tokens, num_v_heads, dtype=dtype)
++    ssm_state = torch.rand(
++        total_entries + 1, num_v_heads, head_k_dim, head_v_dim, dtype=dtype
++    )
++    state_indices = (torch.randperm(total_entries, dtype=torch.int32) + 1)[
++        :num_tokens
++    ].view(num_reqs, num_speculative_tokens + 1)
++    cu_seqlens = torch.arange(
++        0, num_tokens + 1, num_speculative_tokens + 1, dtype=torch.int32
++    )
++    beta = b.sigmoid()
++    g = -A_log.float().exp() * F.softplus(a.float() + dt_bias)
++
++    zeros = torch.zeros(num_reqs, dtype=torch.int32)
++    ones = torch.ones(num_reqs, dtype=torch.int32)
++
++    # A clamped 0 must behave exactly like 1: both read slot 0 of the row.
++    out_zero, state_zero = fused_sigmoid_gating_delta_rule_update(
++        A_log=A_log,
++        a=a,
++        b=b,
++        dt_bias=dt_bias,
++        q=query,
++        k=key,
++        v=value,
++        initial_state=ssm_state.clone(),
++        inplace_final_state=True,
++        ssm_state_indices=state_indices,
++        cu_seqlens=cu_seqlens,
++        num_accepted_tokens=zeros,
++        use_qk_l2norm_in_kernel=True,
++    )
++    out_one, state_one = fused_sigmoid_gating_delta_rule_update(
++        A_log=A_log,
++        a=a,
++        b=b,
++        dt_bias=dt_bias,
++        q=query,
++        k=key,
++        v=value,
++        initial_state=ssm_state.clone(),
++        inplace_final_state=True,
++        ssm_state_indices=state_indices,
++        cu_seqlens=cu_seqlens,
++        num_accepted_tokens=ones,
++        use_qk_l2norm_in_kernel=True,
++    )
++    torch.testing.assert_close(out_zero, out_one, atol=0, rtol=0)
++    torch.testing.assert_close(state_zero, state_one, atol=0, rtol=0)
++
++    out_zero, state_zero = fused_recurrent_gated_delta_rule(
++        q=query,
++        k=key,
++        v=value,
++        g=g.unsqueeze(0),
++        beta=beta.unsqueeze(0),
++        initial_state=ssm_state.clone(),
++        inplace_final_state=True,
++        ssm_state_indices=state_indices,
++        cu_seqlens=cu_seqlens,
++        num_accepted_tokens=zeros,
++        use_qk_l2norm_in_kernel=True,
++    )
++    out_one, state_one = fused_recurrent_gated_delta_rule(
++        q=query,
++        k=key,
++        v=value,
++        g=g.unsqueeze(0),
++        beta=beta.unsqueeze(0),
++        initial_state=ssm_state.clone(),
++        inplace_final_state=True,
++        ssm_state_indices=state_indices,
++        cu_seqlens=cu_seqlens,
++        num_accepted_tokens=ones,
++        use_qk_l2norm_in_kernel=True,
++    )
++    torch.testing.assert_close(out_zero, out_one, atol=0, rtol=0)
++    torch.testing.assert_close(state_zero, state_one, atol=0, rtol=0)
+diff --git a/tests/models/kimi_k3/test_kda_metadata.py b/tests/models/kimi_k3/test_kda_metadata.py
+index 5352ef7a7a64..0f2fadc67e48 100644
+--- a/tests/models/kimi_k3/test_kda_metadata.py
++++ b/tests/models/kimi_k3/test_kda_metadata.py
+@@ -409,3 +409,90 @@ def test_aligned_block_table_matches_shared_gdn():
+     )
+ 
+     torch.testing.assert_close(actual, expected)
++
++
++def _build_kda_with_stale_row(
++    device: torch.device,
++    full_cuda_graph: bool = False,
++    mamba_cache_mode: str = "none",
++) -> tuple[KimiK3KDAMetadata, torch.Tensor, torch.Tensor]:
++    """Build KDA metadata for a batch whose row 0 is stale (0 accepted).
++
++    Returns the metadata plus the block table before and after the build, so
++    callers can assert the runner's table was not written through.
++    """
++    builder = _make_builder(
++        KimiK3KDAMetadataBuilder,
++        num_speculative_tokens=3,
++        full_cuda_graph=full_cuda_graph,
++        device=device,
++        mamba_cache_mode=mamba_cache_mode,
++    )
++    batch = BatchSpec(seq_lens=[80, 96], query_lens=[4, 4])
++    common = create_common_attn_metadata(batch, BLOCK_SIZE, device).replace(
++        is_prefilling=torch.tensor([False, False])
++    )
++    block_table_before = common.block_table_tensor.clone()
++    meta = builder.build(
++        common_prefix_len=0,
++        common_attn_metadata=common,
++        num_decode_draft_tokens_cpu=torch.tensor([3, 3], dtype=torch.int32),
++        num_accepted_tokens=torch.tensor([0, 2], dtype=torch.int32, device=device),
++    )
++    return meta, block_table_before, common.block_table_tensor
++
++
++def _assert_stale_row_nulled(
++    meta: KimiK3KDAMetadata,
++    block_table_before: torch.Tensor,
++    block_table_after: torch.Tensor,
++    check_live_row: bool = True,
++) -> None:
++    assert meta.spec_state_indices_tensor is not None
++    assert meta.num_accepted_tokens is not None
++    stale_row = meta.spec_state_indices_tensor[0]
++    live_row = meta.spec_state_indices_tensor[1]
++
++    assert (stale_row == NULL_BLOCK_ID).all(), (
++        f"stale row must be nulled, got {stale_row.tolist()}"
++    )
++    if check_live_row:
++        # 'align' mode rebuilds the block table from seq_lens, so a synthetic
++        # batch legitimately yields unallocated (zero) slots in live rows too.
++        assert not (live_row == NULL_BLOCK_ID).any(), (
++            f"live row must keep its state slots, got {live_row.tolist()}"
++        )
++    assert meta.num_accepted_tokens[0].item() == 1
++    assert meta.num_accepted_tokens[1].item() == 2
++
++    torch.testing.assert_close(block_table_after, block_table_before)
++
++
++def test_zero_accepted_tokens_nulls_state_slots():
++    """KimiK3KDAMetadataBuilder overrides build() and so does not inherit the
++    shared GDN handling of stale spec rows; it needs its own. A row reporting
++    0 accepted tokens must have its state slots nulled and its count clamped,
++    without writing NULL_BLOCK_ID back into the runner's block table (the
++    packed-decode branch slices it, which can alias the caller's tensor).
++    """
++    _assert_stale_row_nulled(*_build_kda_with_stale_row(DEVICE))
++
++
++@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
++@pytest.mark.parametrize("mamba_cache_mode", ["none", "align"])
++@pytest.mark.parametrize("full_cuda_graph", [False, True])
++def test_zero_accepted_tokens_nulls_state_slots_cuda(
++    mamba_cache_mode: str, full_cuda_graph: bool
++):
++    """Same contract across the CUDA-only paths: 'align' mode rebuilds the
++    block table via a Triton kernel, and full cudagraph mode stages the
++    metadata through persistent buffers. Both must preserve the nulling.
++    """
++    _assert_stale_row_nulled(
++        *_build_kda_with_stale_row(
++            torch.device("cuda"),
++            full_cuda_graph=full_cuda_graph,
++            mamba_cache_mode=mamba_cache_mode,
++        ),
++        check_live_row=mamba_cache_mode != "align",
++    )
+diff --git a/tests/v1/attention/test_gdn_metadata_builder.py b/tests/v1/attention/test_gdn_metadata_builder.py
+index 221f933d8942..329f476ffc0e 100644
+--- a/tests/v1/attention/test_gdn_metadata_builder.py
++++ b/tests/v1/attention/test_gdn_metadata_builder.py
+@@ -21,6 +21,7 @@
+     GDNAttentionMetadata,
+     GDNAttentionMetadataBuilder,
+ )
++from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
+ from vllm.v1.kv_cache_interface import MambaSpec
+ 
+ BLOCK_SIZE = 16
+@@ -155,6 +156,7 @@ def _build(
+     builder: GDNAttentionMetadataBuilder,
+     batch_spec: BatchSpec,
+     num_decode_draft_tokens: list[int] | None = None,
++    num_accepted_tokens: list[int] | None = None,
+ ) -> GDNAttentionMetadata:
+     """Build GDN attention metadata, optionally with spec-decode kwargs."""
+     common = create_common_attn_metadata(batch_spec, BLOCK_SIZE, DEVICE)
+@@ -163,9 +165,15 @@ def _build(
+         kwargs["num_decode_draft_tokens_cpu"] = torch.tensor(
+             num_decode_draft_tokens, dtype=torch.int32
+         )
+-        kwargs["num_accepted_tokens"] = torch.ones(
+-            batch_spec.batch_size, dtype=torch.int32, device=DEVICE
+-        )
++        if num_accepted_tokens is None:
++            accepted = torch.ones(
++                batch_spec.batch_size, dtype=torch.int32, device=DEVICE
++            )
++        else:
++            accepted = torch.tensor(
++                num_accepted_tokens, dtype=torch.int32, device=DEVICE
++            )
++        kwargs["num_accepted_tokens"] = accepted
+     return builder.build(common_prefix_len=0, common_attn_metadata=common, **kwargs)
+ 
+ 
+@@ -198,6 +206,70 @@ def test_has_initial_state_after_reclassification():
+     assert meta.has_initial_state[0].item() is True
+ 
+ 
++@pytest.mark.parametrize("full_cuda_graph", [False, True])
++def test_zero_accepted_tokens_nulls_state_slots(full_cuda_graph: bool):
++    """A stale row (num_accepted_tokens == 0, produced when async scheduling
++    discards a step's sampled tokens) must have its whole state-index row set
++    to NULL_BLOCK_ID so the kernels skip both the initial-state read and the
++    final-state write, and must have its count clamped into range.
++
++    Nulling — rather than only clamping — is what stops the kernel from
++    advancing the recurrent state of a request whose step was discarded.
++    Live rows in the same batch must be left untouched.
++    """
++    num_speculative_tokens = 3
++    builder = _create_gdn_builder(
++        num_speculative_tokens=num_speculative_tokens,
++        full_cuda_graph=full_cuda_graph,
++    )
++    batch = BatchSpec(seq_lens=[80, 96], query_lens=[4, 4])
++    # Row 0 is stale (its sampled tokens were discarded); row 1 is live.
++    meta = _build(
++        builder,
++        batch,
++        num_decode_draft_tokens=[3, 3],
++        num_accepted_tokens=[0, 2],
++    )
++
++    assert meta.spec_state_indices_tensor is not None
++    assert meta.num_accepted_tokens is not None
++
++    stale_row = meta.spec_state_indices_tensor[0]
++    live_row = meta.spec_state_indices_tensor[1]
++
++    assert (stale_row == NULL_BLOCK_ID).all(), (
++        "every state slot of a stale row must be nulled so the kernel's "
++        f"state_idx <= 0 guard skips it, got {stale_row.tolist()}"
++    )
++    assert not (live_row == NULL_BLOCK_ID).any(), (
++        f"a live row must keep its state slots, got {live_row.tolist()}"
++    )
++
++    # The clamp keeps the slot index (num_accepted_tokens - 1) in bounds; the
++    # live row's real count must survive it.
++    assert meta.num_accepted_tokens[0].item() == 1
++    assert meta.num_accepted_tokens[1].item() == 2
++    assert (meta.num_accepted_tokens >= 1).all()
++
++
++def test_zero_accepted_tokens_does_not_corrupt_block_table():
++    """Nulling stale rows must not write NULL_BLOCK_ID back into the block
++    table the runner reuses across steps."""
++    builder = _create_gdn_builder(num_speculative_tokens=3)
++    batch = BatchSpec(seq_lens=[80, 96], query_lens=[4, 4])
++    common = create_common_attn_metadata(batch, BLOCK_SIZE, DEVICE)
++    block_table_before = common.block_table_tensor.clone()
++
++    builder.build(
++        common_prefix_len=0,
++        common_attn_metadata=common,
++        num_decode_draft_tokens_cpu=torch.tensor([3, 3], dtype=torch.int32),
++        num_accepted_tokens=torch.tensor([0, 2], dtype=torch.int32, device=DEVICE),
++    )
++
++    torch.testing.assert_close(common.block_table_tensor, block_table_before)
++
++
+ def test_full_cudagraph_spec_metadata_uses_request_count():
+     """FULL cudagraph token padding must not pad request-indexed metadata."""
+     num_speculative_tokens = 3
+diff --git a/vllm/model_executor/layers/mamba/mamba_utils.py b/vllm/model_executor/layers/mamba/mamba_utils.py
+index 50f6e059c0f4..c270edf7d4ef 100644
+--- a/vllm/model_executor/layers/mamba/mamba_utils.py
++++ b/vllm/model_executor/layers/mamba/mamba_utils.py
+@@ -335,7 +335,10 @@ def get_conv_copy_spec(
+     DS layout ``(num_blocks, dim, state_len)``.
+     """
+     src_block_id = block_ids[cur_block_idx]
+-    offset = num_accepted_tokens - 1
++    # num_accepted_tokens can be 0 for stale rows whose sampled tokens were
++    # discarded; clamp so the offset never goes negative (a negative value
++    # would silently slice from the end of the state).
++    offset = max(num_accepted_tokens - 1, 0)
+     if is_conv_state_dim_first():
+         # DS offset > 0 is handled by the fused postprocess kernel.
+         assert offset == 0, (
+@@ -358,7 +361,10 @@ def get_temporal_copy_spec(
+     num_accepted_tokens: int,
+ ) -> MambaCopySpec:
+     """Return a MambaCopySpec for copying a temporal state slice."""
+-    src_block_id = block_ids[cur_block_idx + num_accepted_tokens - 1]
++    # num_accepted_tokens can be 0 for stale rows whose sampled tokens were
++    # discarded; clamp so the index never goes negative (a negative value
++    # would silently pick a block from the end of the list).
++    src_block_id = block_ids[cur_block_idx + max(num_accepted_tokens - 1, 0)]
+     src_state = state[src_block_id]
+     return MambaCopySpec(
+         start_addr=src_state.data_ptr(), num_elements=src_state.numel()
+diff --git a/vllm/model_executor/layers/mamba/ops/causal_conv1d.py b/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
+index 8335c849666d..1726318f4671 100644
+--- a/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
++++ b/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
+@@ -871,8 +871,10 @@ def _causal_conv1d_update_kernel(
+         # - accept 1 tokens: [history2, ..., historyM, draft1]
+         # - accept 2 tokens: [history3, ..., historyM, draft1, draft2]
+         # - and so on.
+-        conv_state_token_offset = (
+-            tl.load(num_accepted_tokens_ptr + idx_seq).to(tl.int64) - 1
++        # num_accepted_tokens can be 0 for stale rows whose sampled tokens
++        # were discarded; clamp so the offset stays in bounds.
++        conv_state_token_offset = tl.maximum(
++            tl.load(num_accepted_tokens_ptr + idx_seq).to(tl.int64) - 1, 0
+         )
+     else:
+         conv_state_token_offset = 0
+diff --git a/vllm/models/kimi_k3/amd/ops/third_party/kda/fused_recurrent.py b/vllm/models/kimi_k3/amd/ops/third_party/kda/fused_recurrent.py
+index 2f512df62643..0c0b2ae3242e 100644
+--- a/vllm/models/kimi_k3/amd/ops/third_party/kda/fused_recurrent.py
++++ b/vllm/models/kimi_k3/amd/ops/third_party/kda/fused_recurrent.py
+@@ -183,7 +183,11 @@ def fused_recurrent_kda_fwd_kernel(
+     m_state = m_v[:, None] & m_k[None, :]
+ 
+     if IS_SPEC_DECODING:
+-        initial_token = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
++        # num_accepted_tokens can be 0 for stale rows whose sampled tokens
++        # were discarded; clamp so the index stays in bounds.
++        initial_token = tl.maximum(
++            tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1, 0
++        )
+     else:
+         initial_token = 0
+     state_index = tl.load(state_indices + i_n * stride_indices_seq + initial_token).to(
+diff --git a/vllm/models/kimi_k3/nvidia/kda_metadata.py b/vllm/models/kimi_k3/nvidia/kda_metadata.py
+index 0bb4864d2918..642508bf0081 100644
+--- a/vllm/models/kimi_k3/nvidia/kda_metadata.py
++++ b/vllm/models/kimi_k3/nvidia/kda_metadata.py
+@@ -400,6 +400,21 @@ def build(  # type: ignore[override]
+ 
+                 num_accepted_tokens = num_accepted_tokens[spec_sequence_masks_cpu]
+ 
++            # A row can report 0 accepted tokens when its sampled tokens were
++            # discarded (stale async-scheduling step) while its drafts were
++            # still scheduled. Such a row has no valid spec state to resume
++            # from, and its recurrent state must not advance this step: null
++            # its state slots so the kernels skip both the initial-state read
++            # and the final-state write, and clamp the count so the slot
++            # index (num_accepted_tokens - 1) stays in bounds. This is done
++            # out-of-place because the packed-decode branch above slices
++            # block_table_tensor, which can be a view of the runner's
++            # persistent block table.
++            spec_state_indices_tensor = spec_state_indices_tensor.masked_fill(
++                (num_accepted_tokens == 0).unsqueeze(-1), NULL_BLOCK_ID
++            )
++            num_accepted_tokens = num_accepted_tokens.clamp(min=1)
++
+         # Unlike the shared GDN layer, Kimi-K3's prefill KDA wrapper prepares
+         # its own chunk indices. Only causal-convolution metadata is needed here.
+         nums_dict, batch_ptr, token_chunk_offset_ptr = None, None, None
+diff --git a/vllm/models/kimi_k3/nvidia/ops/third_party/kda/fused_recurrent.py b/vllm/models/kimi_k3/nvidia/ops/third_party/kda/fused_recurrent.py
+index b4d35d85571f..27d23996cd4a 100644
+--- a/vllm/models/kimi_k3/nvidia/ops/third_party/kda/fused_recurrent.py
++++ b/vllm/models/kimi_k3/nvidia/ops/third_party/kda/fused_recurrent.py
+@@ -194,7 +194,11 @@ def fused_recurrent_kda_fwd_kernel(
+     m_state = m_v[:, None] & m_k[None, :]
+ 
+     if IS_SPEC_DECODING:
+-        initial_token = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
++        # num_accepted_tokens can be 0 for stale rows whose sampled tokens
++        # were discarded; clamp so the index stays in bounds.
++        initial_token = tl.maximum(
++            tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1, 0
++        )
+     else:
+         initial_token = 0
+     state_index = tl.load(state_indices + i_n * stride_indices_seq + initial_token).to(
+diff --git a/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py b/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+index c8004cb57173..e1dcb258ffb3 100644
+--- a/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
++++ b/vllm/third_party/flash_linear_attention/ops/fused_recurrent.py
+@@ -103,7 +103,9 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
+     if USE_INITIAL_STATE:
+         if IS_CONTINUOUS_BATCHING:
+             if IS_SPEC_DECODING:
+-                i_t = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
++                # num_accepted_tokens can be 0 for stale rows whose sampled
++                # tokens were discarded; clamp so the index stays in bounds.
++                i_t = tl.maximum(tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1, 0)
+             else:
+                 i_t = 0
+             # Load state index and check for invalid entries
+diff --git a/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py b/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+index 7e0c7e05cab1..f91685621693 100644
+--- a/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
++++ b/vllm/third_party/flash_linear_attention/ops/fused_sigmoid_gating.py
+@@ -103,7 +103,9 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
+     if USE_INITIAL_STATE:
+         if IS_CONTINUOUS_BATCHING:
+             if IS_SPEC_DECODING:
+-                i_t = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
++                # num_accepted_tokens can be 0 for stale rows whose sampled
++                # tokens were discarded; clamp so the index stays in bounds.
++                i_t = tl.maximum(tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1, 0)
+             else:
+                 i_t = 0
+             # Load state index and check for invalid entries
+diff --git a/vllm/v1/attention/backends/gdn_attn.py b/vllm/v1/attention/backends/gdn_attn.py
+index 0b32dfcf9444..82e5767b653a 100644
+--- a/vllm/v1/attention/backends/gdn_attn.py
++++ b/vllm/v1/attention/backends/gdn_attn.py
+@@ -324,6 +324,18 @@ def build(  # type: ignore[override]
+ 
+             assert num_accepted_tokens is not None
+             num_accepted_tokens = num_accepted_tokens[spec_sequence_masks_cpu]
++            # A row can report 0 accepted tokens when its sampled tokens were
++            # discarded (stale async-scheduling step) while its drafts were
++            # still scheduled. Such a row has no valid spec state to resume
++            # from, and its recurrent state must not advance this step: null
++            # its state slots so the kernels skip both the initial-state read
++            # and the final-state write, and clamp the count so the slot
++            # index (num_accepted_tokens - 1) stays in bounds.
++            stale_spec_reqs = num_accepted_tokens == 0
++            spec_state_indices_tensor.masked_fill_(
++                stale_spec_reqs.unsqueeze(-1), NULL_BLOCK_ID
++            )
++            num_accepted_tokens = num_accepted_tokens.clamp(min=1)
+ 
+         chunk_indices: torch.Tensor | None = None
+         chunk_offsets: torch.Tensor | None = None
+diff --git a/vllm/v1/spec_decode/utils.py b/vllm/v1/spec_decode/utils.py
+index 65b9408a8901..123dfcf26b18 100644
+--- a/vllm/v1/spec_decode/utils.py
++++ b/vllm/v1/spec_decode/utils.py
+@@ -575,6 +575,15 @@ def update_num_computed_tokens_for_batch_change(
+ 
+     Requests that had drafts: corrected = prev_gpu + valid_count.
+     New requests or non-draft (e.g. prefills): use CPU value directly.
++
++    NOTE: valid_sampled_token_count is 0 for rows whose sampled tokens were
++    discarded (see eagle_prepare_next_token_padded_kernel), so this can write
++    0 into num_accepted_tokens even though its normal range is
++    1..1+num_speculative_tokens. That 0 is the staleness signal: mamba/GDN
++    metadata builders and kernels that index state slots with
++    num_accepted_tokens - 1 must treat 0 as "stale row, do not touch state"
++    (see GDNAttentionMetadataBuilder.build) rather than assume the count is
++    always positive.
+     """
+     # Clamp because prev_positions can be -1 for new requests
+     gather_indices = prev_positions.clamp(min=0)

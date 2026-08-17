@@ -18,7 +18,7 @@ defaults:
   model_path: /root/models/models115/Kimi-K3
   draft_model_path: /root/models/models11/RedHatAI-Kimi-K3-dspark
 
-mods: []
+mods: [mods/pr51508-stale-zero-accept, mods/pr51036-repetition-detection, mods/pr46324-piecewise-spec-capture, mods/pr50169-drafter-kv-pool, mods/pr46932-uma-cudagraph-mem, mods/pr47926-dspark-prefix-mask]
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"

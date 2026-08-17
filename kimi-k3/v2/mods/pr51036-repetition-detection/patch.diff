@@ -1,0 +1,206 @@
+diff --git a/tests/entrypoints/openai/test_repetition_detection_defaults.py b/tests/entrypoints/openai/test_repetition_detection_defaults.py
+new file mode 100644
+index 000000000000..fe7433eab544
+--- /dev/null
++++ b/tests/entrypoints/openai/test_repetition_detection_defaults.py
+@@ -0,0 +1,110 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++"""
++Unit tests for repetition_detection propagation from default_sampling_params
++to SamplingParams in ChatCompletionRequest and CompletionRequest.
++
++Operators can set repetition_detection server-side via the model generation
++config or --override-generation-config to guard against degenerate repetition
++loops; the serving layer must apply it when a request does not set its own.
++"""
++
++from vllm.entrypoints.openai.chat_completion.protocol import (
++    ChatCompletionRequest,
++)
++from vllm.entrypoints.openai.completion.protocol import (
++    CompletionRequest,
++)
++from vllm.sampling_params import RepetitionDetectionParams
++
++SERVER_DEFAULT = RepetitionDetectionParams(max_pattern_size=8, min_count=4)
++REQUEST_OVERRIDE = RepetitionDetectionParams(max_pattern_size=1, min_count=10)
++
++
++class TestCompletionRepetitionDetection:
++    """repetition_detection fallback in CompletionRequest.to_sampling_params()."""
++
++    def test_server_default_applied(self):
++        """Server-default repetition_detection applies when request sends none."""
++        request = CompletionRequest(model="test-model", prompt="hello")
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={"repetition_detection": SERVER_DEFAULT},
++        )
++
++        assert sampling_params.repetition_detection == SERVER_DEFAULT
++
++    def test_request_value_wins(self):
++        """Request-specified repetition_detection overrides the server default."""
++        request = CompletionRequest(
++            model="test-model",
++            prompt="hello",
++            repetition_detection=REQUEST_OVERRIDE,
++        )
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={"repetition_detection": SERVER_DEFAULT},
++        )
++
++        assert sampling_params.repetition_detection == REQUEST_OVERRIDE
++
++    def test_no_repetition_detection_anywhere(self):
++        """With no server default and no request value, it stays disabled."""
++        request = CompletionRequest(model="test-model", prompt="hello")
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={},
++        )
++
++        assert sampling_params.repetition_detection is None
++
++
++class TestChatCompletionRepetitionDetection:
++    """repetition_detection fallback in ChatCompletionRequest.to_sampling_params()."""
++
++    def test_server_default_applied(self):
++        """Server-default repetition_detection applies when request sends none."""
++        request = ChatCompletionRequest(
++            model="test-model",
++            messages=[{"role": "user", "content": "hello"}],
++        )
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={"repetition_detection": SERVER_DEFAULT},
++        )
++
++        assert sampling_params.repetition_detection == SERVER_DEFAULT
++
++    def test_request_value_wins(self):
++        """Request-specified repetition_detection overrides the server default."""
++        request = ChatCompletionRequest(
++            model="test-model",
++            messages=[{"role": "user", "content": "hello"}],
++            repetition_detection=REQUEST_OVERRIDE,
++        )
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={"repetition_detection": SERVER_DEFAULT},
++        )
++
++        assert sampling_params.repetition_detection == REQUEST_OVERRIDE
++
++    def test_no_repetition_detection_anywhere(self):
++        """With no server default and no request value, it stays disabled."""
++        request = ChatCompletionRequest(
++            model="test-model",
++            messages=[{"role": "user", "content": "hello"}],
++        )
++
++        sampling_params = request.to_sampling_params(
++            max_tokens=100,
++            default_sampling_params={},
++        )
++
++        assert sampling_params.repetition_detection is None
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 21bdde0457d5..1d5eede2c0f5 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -34,6 +34,7 @@
+     OptimizationLevel,
+ )
+ from vllm.platforms import current_platform
++from vllm.sampling_params import RepetitionDetectionParams
+ from vllm.v1.attention.backend import AttentionCGSupport
+ 
+ DEVICE_TYPE = current_platform.device_type
+@@ -783,6 +784,22 @@ def test_generation_config_loading():
+ 
+     assert model_config.get_diff_sampling_param() == override_generation_config
+ 
++    # repetition_detection is accepted as a server-side default and converted
++    # from the raw JSON dict into typed params for the serving layers.
++    model_config = ModelConfig(
++        model_id,
++        generation_config="vllm",
++        override_generation_config={
++            "repetition_detection": {"max_pattern_size": 8, "min_count": 4}
++        },
++    )
++
++    assert model_config.get_diff_sampling_param() == {
++        "repetition_detection": RepetitionDetectionParams(
++            max_pattern_size=8, min_count=4
++        )
++    }
++
+ 
+ @pytest.mark.parametrize(
+     "pt_load_map_location",
+diff --git a/vllm/config/model.py b/vllm/config/model.py
+index e6c3dd944d59..5a609d8707e2 100644
+--- a/vllm/config/model.py
++++ b/vllm/config/model.py
+@@ -1619,6 +1619,7 @@ def get_diff_sampling_param(self) -> dict[str, Any]:
+             "top_p",
+             "min_p",
+             "max_new_tokens",
++            "repetition_detection",
+         ]
+         if any(p in config for p in available_params):
+             diff_sampling_param = {
+@@ -1630,6 +1631,14 @@ def get_diff_sampling_param(self) -> dict[str, Any]:
+                 diff_sampling_param["max_tokens"] = diff_sampling_param.pop(
+                     "max_new_tokens"
+                 )
++            # repetition_detection arrives as a raw dict from JSON configs
++            repetition_detection = diff_sampling_param.get("repetition_detection")
++            if isinstance(repetition_detection, dict):
++                from vllm.sampling_params import RepetitionDetectionParams
++
++                diff_sampling_param["repetition_detection"] = RepetitionDetectionParams(
++                    **repetition_detection
++                )
+         else:
+             diff_sampling_param = {}
+ 
+diff --git a/vllm/entrypoints/openai/chat_completion/protocol.py b/vllm/entrypoints/openai/chat_completion/protocol.py
+index d25b3886ad54..4c34a2d0efd1 100644
+--- a/vllm/entrypoints/openai/chat_completion/protocol.py
++++ b/vllm/entrypoints/openai/chat_completion/protocol.py
+@@ -739,7 +739,8 @@ def to_sampling_params(
+             allowed_token_ids=self.allowed_token_ids,
+             extra_args=extra_args or None,
+             skip_clone=True,  # Created fresh per request, safe to skip clone
+-            repetition_detection=self.repetition_detection,
++            repetition_detection=self.repetition_detection
++            or default_sampling_params.get("repetition_detection"),
+         )
+ 
+     @model_validator(mode="before")
+diff --git a/vllm/entrypoints/openai/completion/protocol.py b/vllm/entrypoints/openai/completion/protocol.py
+index 516a2c371fff..763f18dd3cb6 100644
+--- a/vllm/entrypoints/openai/completion/protocol.py
++++ b/vllm/entrypoints/openai/completion/protocol.py
+@@ -391,7 +391,8 @@ def to_sampling_params(
+             bad_words=self.bad_words,
+             extra_args=extra_args or None,
+             skip_clone=True,  # Created fresh per request, safe to skip clone
+-            repetition_detection=self.repetition_detection,
++            repetition_detection=self.repetition_detection
++            or default_sampling_params.get("repetition_detection"),
+             thinking_token_budget=self.thinking_token_budget,
+         )
+ 

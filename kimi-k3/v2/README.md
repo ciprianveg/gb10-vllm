@@ -48,7 +48,7 @@ Full reproducible two-step build guide:
 | Recipe | TP | PP | Draft | Max ctx | Notes |
 |---|---|---|---|---|---|
 | [`kimi-k3-tp16.yaml`](recipes/kimi-k3-tp16.yaml) | 16 | 1 | RedHat DSpark (Qwen3-GQA) | **~500K** | **Recommended** — full speed, ~21-25 tok/s single-stream |
-| [`kimi-k3-tp8pp2.yaml`](recipes/kimi-k3-tp8pp2.yaml) | 8 | 2 | RedHat DSpark (Qwen3-GQA) | **~1M** | Max context, ~20% slower than TP16; requires `fix-pp2-sm121` mod |
+| [`kimi-k3-tp8pp2.yaml`](recipes/kimi-k3-tp8pp2.yaml) | 8 | 2 | RedHat DSpark (Qwen3-GQA) | **~1M** | Max context, ~20% slower than TP16 |
 
 Context on TP8+PP2: **~1M tokens** with a slightly increased
 `--gpu-memory-utilization` and `instanttensor` disabled, **~750K tokens** with
@@ -99,18 +99,29 @@ Overall decode tok/s : 24.87
 
 ## Mods
 
-TP16 needs **no mods** — all fixes are baked into the image. The TP8+PP2 recipe
-applies the external [`fix-pp2-sm121`](mods/fix-pp2-sm121/) mod at container
-start (PP2 + DSpark infra fixes: draft PP=1, aux-hidden-state-over-PP, EAGLE3+PP
-guard removal, embed-tokens sharing). Before running the TP8+PP2 recipe, copy
-the mod into your eugr harness's `mods/` dir:
+Both recipes apply a set of **performance mods** at container start — upstream vLLM
+PRs backported to the `881ac39` fork. Together they give **~7% decode speed** on
+both TP16 and TP8+PP2:
+
+| Mod | Upstream PR | What it does |
+|---|---|---|
+| `pr51508-stale-zero-accept` | #51508 | Skip GDN/KDA recurrent-state updates for stale (zero-accept) spec rows |
+| `pr51036-repetition-detection` | #51036 | Allowlist `repetition_detection` override-generation config (mitigates KDA-NaN loops) |
+| `pr46324-piecewise-spec-capture` | #46324 | Align spec-decode CUDA-graph capture sizes in PIECEWISE mode |
+| `pr50169-drafter-kv-pool` | #50169 | Dedicated KV groups for sliding-window drafters (GB10 pool 415k → 871k) |
+| `pr46932-uma-cudagraph-mem` | #46932 | Fix CUDA-graph memory accounting on unified-memory (GB10) |
+| `pr47926-dspark-prefix-mask` | #47926 | Mask prefix-cache-restored tokens out of the DSpark draft context |
+| `fix-pp2-sm121` | — (TP8+PP2 only) | PP2 + DSpark infra fixes: draft PP=1, aux-hidden-state-over-PP, EAGLE3+PP guard removal, embed-tokens sharing |
+
+Copy the mods into your eugr harness's `mods/` dir before running (the recipes'
+`mods:` entries resolve relative to the harness):
 
 ```bash
-cp -r <gb10-vllm>/kimi-k3/v2/mods/fix-pp2-sm121 ~/eugr/spark-vllm-docker/mods/
+cp -r <gb10-vllm>/kimi-k3/v2/mods/* ~/eugr/spark-vllm-docker/mods/
 ```
 
-The recipe's `mods: [mods/fix-pp2-sm121]` resolves relative to the harness, so
-the harness must have the mod in its own `mods/` directory.
+TP16 needs **no image-level mods** — the v1 runtime fixes are baked into the fork's
+integration branch; these mods are runtime performance backports only.
 
 ## Cache requirements
 
@@ -135,6 +146,8 @@ the harness must have the mod in its own `mods/` directory.
   with `TRITON_ATTN` — the v2 recipes use `num_speculative_tokens: 6`.
 - **TP16 is now the recommended path** (~500K ctx, fastest). v1 recommended PP2
   because TP16 only fit ~200K; v2's TP16 fits ~500K.
+- **Performance mods** (both recipes): 6 upstream PR backports applied at
+  container start (~7% decode speedup over the unmodded v2 config).
 
 ## Directory structure
 
