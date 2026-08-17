@@ -71,7 +71,7 @@ Both reference `container: vllm-node-kimi3-sm121` and are `cluster_only`
 DSpark draft at `/root/models/models11/RedHatAI-Kimi-K3-dspark`; the recipes use
 `{model_path}` / `{draft_model_path}` defaults you can override.
 
-## Benchmarks (TP16, 16× GB10)
+## Benchmarks (TP16, 16× GB10) (DCP 1) 
 
 > From llama-benchy (coherent corpus, tg=1500, ctx=120000), run twice — first run
 > ignored to exclude the warmup phase. Endpoint: `http://<head>:5002/v1`.
