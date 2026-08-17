@@ -49,7 +49,18 @@ Full reproducible two-step build guide:
 |---|---|---|---|---|---|
 | [`kimi-k3-tp16.yaml`](recipes/kimi-k3-tp16.yaml) | 16 | 1 | RedHat DSpark (Qwen3-GQA) | **~500K** | **Recommended** — full speed, ~21-25 tok/s single-stream |
 | [`kimi-k3-tp8pp2.yaml`](recipes/kimi-k3-tp8pp2.yaml) | 8 | 2 | RedHat DSpark (Qwen3-GQA) | **~1M** | Max context, ~20% slower than TP16 |
-| [`kimi-k3-dcp-tp16.yaml`](recipes/kimi-k3-dcp-tp16.yaml) | 16 (DCP16) | 1 | RedHat DSpark (Qwen3-GQA) | **~270K** | DCP16 KV split — targets long-context decode decline (KV re-read bound); context capped at 270K |
+| [`kimi-k3-dcp-tp16.yaml`](recipes/kimi-k3-dcp-tp16.yaml) | 16 (DCP16) | 1 | RedHat DSpark (Qwen3-GQA) | **~270K** | DCP16 KV split — ~10% slower at low context, ~2× token gen speed at 240K ctx |
+
+### DCP16 variant
+
+The DCP16 recipe splits the MLA latent KV 16× across ranks, so the B12X_MLA
+spec-verify flattening re-reads KV/16 per row instead of the full prefix. This
+targets the long-context decode decline (KV re-read bound at 100K+).
+
+It trades a small low-context penalty for a large long-context gain: **~10%
+slower at low context** (~20 tok/s), but **~2× token-generation speed at 240K
+context** (~15 tok/s at 250K context) versus the plain TP16 recipe. Context is
+capped at 270K for stability.
 
 Context on TP8+PP2: **~1M tokens** with a slightly increased
 `--gpu-memory-utilization` and `instanttensor` disabled, **~750K tokens** with
