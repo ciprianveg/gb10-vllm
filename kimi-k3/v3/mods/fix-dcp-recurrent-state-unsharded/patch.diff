@@ -1,0 +1,17 @@
+diff --git a/vllm/v1/kv_cache_interface.py b/vllm/v1/kv_cache_interface.py
+--- a/vllm/v1/kv_cache_interface.py
++++ b/vllm/v1/kv_cache_interface.py
+@@ -404,6 +404,13 @@ def get_kv_cache_dcp_shard_count(
+             f"Configured decode-context-parallel size must be positive: "
+             f"{configured_dcp}"
+         )
++    # Recurrent state has one token-position shard across the DCP group. Its
++    # feature dimensions may still be partitioned by TP. MambaManager therefore
++    # uses the unscaled Mamba block size; reporting multiple position shards
++    # here would make worker block tables too narrow for their absolute sparse
++    # indices and route state writes through out-of-bounds block IDs.
++    if isinstance(spec, MambaSpec):
++        return 1
+     replicated = bool(getattr(spec, "dcp_replicated", False))
+     override = getattr(spec, "dcp_kv_shard_count", None)
+     if replicated:
