@@ -81,14 +81,7 @@ vLLM's golden reference implementation, and CUDA-graph capturable.
 minor nondeterminism source (fp32 `atomicAdd` global reduce). Full determinism would need
 `=0` but costs throughput. This patch removes the larger, compounding source regardless.
 
-### 3. Probabilistic draft sampling
-
-Added `draft_sample_method: "probabilistic"` to the speculative config. The v18.1 recipe
-used the default (greedy) draft sampling. Probabilistic sampling increases MTP acceptance
-(measured: ~38% → ~61% acceptance on coding workloads), which translates to higher
-effective decode throughput.
-
-### 4. Decode-aware prefill token budget
+### 3. Decode-aware prefill token budget
 
 `--decode-prefill-token-budget` increased from 512 to 1024. When decode requests are
 active, the scheduler allocates this many tokens per step to prefill work. 1024 gives
