@@ -325,7 +325,7 @@ Snake-game generation, 1500 completion tokens:
 
 | Image | Wall time | tok/s |
 |---|---|---|
-| v19-vision | 28.24s | 53.12 |
+| v19-vision | 28.00s | 53.58 |
 
 Coding workloads have consistently high MTP acceptance, so adaptive MTP 2/4/5 ratchets
 up to k=5 and catches all-5-accept streaks. The `draft_sample_method: probabilistic`
