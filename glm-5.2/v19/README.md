@@ -47,10 +47,6 @@ v18.1's measured ~1077 t/s at the same depth on the same cluster. The gain **sca
 context depth** because the indexer work grows with history length, so splitting it across
 8 ranks pays more as context deepens.
 
-On RTX PRO 6000 Blackwell (SM120, more compute per GPU), the same patch measured
-**+31.8% at 400K context** — the gain is larger there because the indexer is a bigger
-fraction of total prefill time.
-
 **Files patched:**
 - `vllm/distributed/parallel_state.py` — remove `decode_context_parallel_size > 1` gate
 - `vllm/model_executor/layers/sparse_attn_indexer.py` — remove `dcp_world_size > 1` gate,
