@@ -13,7 +13,7 @@ and applying runtime mods.
 | **KIMI-K3** (v3, MoE fusion + DCP8 + RedHat DSpark) | [kimi-k3/v3](kimi-k3/v3/) | **Recommended** — TP16+DCP8, 2M total ctx capacity, >270K-context loop fixed, no runtime mods |
 | **KIMI-K3** (v2, sm121 image + RedHat DSpark) | [kimi-k3/v2](kimi-k3/v2/) | Superseded by v3 — TP16 (~500K ctx) / TP8+PP2 (~1M ctx) |
 | **KIMI-K3** (v1, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | Historic artifact — kept for reference only |
-| **GLM-5.2** (Int4-Int8) | [glm-5.2](glm-5.2/) | v16 / v18 / v18-vision / v18.1-vision, ~1,330 t/s prefill, vision | 
+| **GLM-5.2** (Int4-Int8) | [glm-5.2](glm-5.2/) | v19-vision (current) — DCP1 query split (+10% prefill @ 200K), deterministic MoE, vision, adaptive MTP 2/4/5 |
 
 Each subtree is self-contained: a `README.md` model page, build script + Dockerfile, deploy
 recipes (`*.yaml`), and runtime mods. Open the model page for its full guide.
@@ -54,7 +54,7 @@ gb10-vllm/
 ├── kimi-k3/v1/               KIMI-K3 v1 (historic artifact) — see kimi-k3/v1/README.md
 ├── kimi-k3/v2/               KIMI-K3 v2 (superseded) — sm121 image + RedHat DSpark
 ├── kimi-k3/v3/               KIMI-K3 v3 (recommended) — MoE fusion + DCP8 — see kimi-k3/v3/README.md
-├── glm-5.2/                  GLM-5.2 v16/v18/v18-vision — see glm-5.2/README.md
+├── glm-5.2/                  GLM-5.2 v16/v18/v18-vision/v19-vision — see glm-5.2/README.md
 ├── README.md                 this file (platform overview + model index)
 ├── ATTRIBUTION.md            upstream credits
 └── CREDITS.md                component licenses
