@@ -24,14 +24,14 @@ MoonViT vision, adaptive MTP 2/4/5) and bakes in two source-level patches:
 
 Also adds `draft_sample_method: probabilistic` (higher MTP acceptance) and
 `decode-prefill-token-budget 1024` to the recipe. See
-[`v18-vision/README-v19.md`](v18-vision/README-v19.md) for the full self-contained guide.
+[`v19/README.md`](v19/README.md) for the full self-contained guide.
 
 | v19 recipe | KV cache | When |
 |---|---|---|
-| [`glm52-int4int8-v19-vision.yaml`](v18-vision/recipes/glm52-int4int8-v19-vision.yaml) | `fp8_ds_mla` | **Default** — all v19 workloads |
+| [`glm52-int4int8-v19-vision.yaml`](v19/recipes/glm52-int4int8-v19-vision.yaml) | `fp8_ds_mla` | **Default** — all v19 workloads |
 | [`glm52-int4int8-v18.1-vision-nvfp4.yaml`](v18-vision/recipes/glm52-int4int8-v18.1-vision-nvfp4.yaml) | `nvfp4_ds_mla` | Opt-in for max context (~1.52× KV density, ~10% slower prefill — see [v18.1 guide](v18-vision/README-v18.1.md)) |
 
-**Forum post (v18):** [GLM-5.2 Int4-Int8 on 8× GB10 — 1,329 t/s prefill, 66 t/s peak decode](https://forums.developer.nvidia.com/t/glm-5-2-int4-int8-on-8x-gb10-1-200-t-s-prefill-33-54-t-s-avg-decode-generic-coding-structured/376831?u=ciprianveg) (v19 numbers are in the [v19 guide](v18-vision/README-v19.md#benchmarks-v19-vision-fp8-kv-cache-8x-gb10-tp8))
+**Forum post (v18):** [GLM-5.2 Int4-Int8 on 8× GB10 — 1,329 t/s prefill, 66 t/s peak decode](https://forums.developer.nvidia.com/t/glm-5-2-int4-int8-on-8x-gb10-1-200-t-s-prefill-33-54-t-s-avg-decode-generic-coding-structured/376831?u=ciprianveg) (v19 numbers are in the [v19 guide](v19/README.md#benchmarks-v19-vision-fp8-kv-cache-8x-gb10-tp8))
 
 ---
 
@@ -44,7 +44,7 @@ The fastest path is the prebuilt image (no build needed):
 docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v19-vision
 
 # 2. Deploy (from spark-vllm-docker) — fp8 KV cache (default)
-./run-recipe.sh ../gb10-glm-5.2/v18-vision/recipes/glm52-int4int8-v19-vision.yaml --setup
+./run-recipe.sh ../gb10-glm-5.2/v19/recipes/glm52-int4int8-v19-vision.yaml --setup
 ```
 
 > **First boot:** CuTe DSL + Triton kernels JIT-compile for each unique batch shape. Expect latency spikes (1-2 s) during the first ~10-20 requests. After warmup, decode speed matches and surpasses v16. For persistent caches, mount the directories listed in the [warmup section](#warmup--cache-requirements).
@@ -52,7 +52,7 @@ docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v19-vision
 ### Build v19-vision yourself (optional)
 
 v19-vision is built in two stages: first build v18.1-vision (native sm_121 rebuild), then apply
-the two v19 patches to the installed vLLM package. See [`v18-vision/README-v19.md`](v18-vision/README-v19.md#how-the-v19-vision-image-is-built)
+the two v19 patches to the installed vLLM package. See [`v19/README.md`](v19/README.md#how-the-v19-vision-image-is-built)
 for the full build process.
 
 ```bash
@@ -62,7 +62,7 @@ cd gb10-glm-5.2
 ./v18-vision/build-nvfp4.sh            # builds ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision
 
 # 2. Apply v19 patches (DCP1 query split + deterministic MoE align)
-# See v18-vision/README-v19.md for the patch application details
+# See v19/README.md for the patch application details
 ```
 
 ### Build v18 / v18-vision from source (legacy)
@@ -116,10 +116,10 @@ The base image is the canonical artifact; `v18-prod` is a convenience layer with
 
 v19-vision takes the v18.1-vision image and bakes in two source-level patches. No runtime mods
 required — the patches are permanent in the image. See
-[`v18-vision/README-v19.md`](v18-vision/README-v19.md) for the full self-contained guide (vision
+[`v19/README.md`](v19/README.md) for the full self-contained guide (vision
 tower download, composite assembly, build, benchmarks, validation).
 
-Recipe: [`v18-vision/recipes/glm52-int4int8-v19-vision.yaml`](v18-vision/recipes/glm52-int4int8-v19-vision.yaml).
+Recipe: [`v19/recipes/glm52-int4int8-v19-vision.yaml`](v19/recipes/glm52-int4int8-v19-vision.yaml).
 
 ---
 
@@ -137,7 +137,7 @@ See [`v18-vision/README.md`](v18-vision/README.md) for the vision-tower download
 
 ## v18 Benchmarks (llama-benchy, coherent corpus, TP8/DCP1, MTP k=4)
 
-> **v19-vision benchmarks** (current production) are in the [v19 guide — Benchmarks](v18-vision/README-v19.md#benchmarks-v19-vision-fp8-kv-cache-8x-gb10-tp8). The table below is the v18 (sm_120, previous) reference.
+> **v19-vision benchmarks** (current production) are in the [v19 guide — Benchmarks](v19/README.md#benchmarks-v19-vision-fp8-kv-cache-8x-gb10-tp8). The table below is the v18 (sm_120, previous) reference.
 
 > **Important:** For accurate results, first run a warmup pass (~20 requests at varying context depths) to trigger CuTe DSL + Triton kernel compilation. Without warmup, first-batch JIT overhead inflates TTFR and depresses decode t/s. With persistent cache mounts (see below), warmup is only needed once.
 
@@ -252,6 +252,9 @@ glm-5.2/                        ← GLM-5.2 on DGX Spark (GB10) subtree
 │   ├── build.sh               v18 build script
 │   ├── mods/                  all 7 v18 runtime mods
 │   └── recipes/               v18 recipes (production + DSpark variants)
+├── v19/                        v19-vision (current production) — DCP1 query split + deterministic MoE
+│   ├── README.md              v19-vision guide (self-contained, references ../v18-vision/ for build scripts)
+│   └── recipes/               v19-vision recipe (fp8 default)
 ├── v18-vision/                v18-prod + vision + adaptive MTP 2/4 overlay
 │   ├── Dockerfile             9-file overlay on v18-prod
 │   ├── Dockerfile.nvfp4       v18.1-vision: in-place vLLM rebuild (native sm_121 + NVFP4 kernels)
@@ -259,7 +262,7 @@ glm-5.2/                        ← GLM-5.2 on DGX Spark (GB10) subtree
 │   ├── build-nvfp4.sh         v18.1-vision build script
 │   ├── README.md              v18-vision guide (vision download, composite assembly, build)
 │   ├── README-v18.1.md        v18.1-vision guide (native sm_121 + NVFP4 KV cache, benchmarks)
-│   ├── README-v19.md          v19-vision guide (DCP1 query split + deterministic MoE, self-contained)
+│   # v19-vision lives in v19/ — see v19/README.md
 │   ├── overlay/vllm/...       the 9 overlaid vLLM .py files
 │   ├── scripts/               composite assembler + registry overlay
 │   └── recipes/               v18-vision + v18.1-vision + v19-vision recipes

@@ -9,7 +9,7 @@ Image: `ghcr.io/ciprianveg/gb10-glm-5.2:v19-vision` (linux/arm64, sm_121).
 
 > **Default recommendation: use `v19-vision` with `fp8_ds_mla`** (recipe
 > [`glm52-int4int8-v19-vision.yaml`](recipes/glm52-int4int8-v19-vision.yaml)).
-> Reach for the NVFP4 recipe ([`...-nvfp4.yaml`](recipes/glm52-int4int8-v18.1-vision-nvfp4.yaml))
+> Reach for the NVFP4 recipe ([`...-nvfp4.yaml`](../v18-vision/recipes/glm52-int4int8-v18.1-vision-nvfp4.yaml))
 > **only when you need more context than fp8 provides.**
 
 ---
@@ -41,7 +41,7 @@ indices (not FP32 scores, halving result traffic). The feature is gated by
 | 100K | 1217.64 | 1310.95 | **+7.7%** |
 | **200K** | — | **1264.13** | **+10%+** |
 
-v18.1 baseline from the [v18.1-vision benchmarks](README-v18.1.md#benchmarks-v181-vision-fp8-kv-cache-8x-gb10-tp8).
+v18.1 baseline from the [v18.1-vision benchmarks](../v18-vision/README-v18.1.md#benchmarks-v181-vision-fp8-kv-cache-8x-gb10-tp8).
 At 100K, v19 is +7.7% faster. At 200K, v19 sustains 1264 t/s — a 10%+ improvement over
 v18.1's measured ~1077 t/s at the same depth on the same cluster. The gain **scales with
 context depth** because the indexer work grows with history length, so splitting it across
@@ -162,8 +162,8 @@ TEXT_DIR=/path/to/models/GLM-5.2-Int4-Int8                  # existing QuantTrio
 VISION_DIR=/path/to/models/baseten-GLM-5.2-Vision-NVFP4
 OUTPUT_DIR=/path/to/models/glm52-quanttrio-vision           # new composite dir (created by assembler)
 
-# The assembler script is in this repo at v18-vision/scripts/assemble_quanttrio_glm5v.py
-python3 v18-vision/scripts/assemble_quanttrio_glm5v.py \
+# The assembler script is in this repo at ../v18-vision/scripts/assemble_quanttrio_glm5v.py
+python3 ../v18-vision/scripts/assemble_quanttrio_glm5v.py \
   --text-dir  "${TEXT_DIR}" \
   --vision-dir "${VISION_DIR}" \
   --output-dir "${OUTPUT_DIR}"
@@ -236,7 +236,7 @@ overlay intact. Build-time `cuobjdump` + overlay-intact checks gate the image.
 
 ```bash
 docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v18-vision
-./v18-vision/build-nvfp4.sh           # builds ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision
+../v18-vision/build-nvfp4.sh           # builds ghcr.io/ciprianveg/gb10-glm-5.2:v18.1-vision
 ```
 
 ### Stage 2 — v19-vision (patch bake-in)
@@ -291,7 +291,7 @@ context-capped.
 ## Benchmarks (v19-vision, fp8 KV cache, 8× GB10 TP8)
 
 llama-benchy, coherent corpus, single-stream. v18.1 baseline from
-[README-v18.1.md](README-v18.1.md#benchmarks-v181-vision-fp8-kv-cache-8x-gb10-tp8).
+[../v18-vision/README-v18.1.md](../v18-vision/README-v18.1.md#benchmarks-v181-vision-fp8-kv-cache-8x-gb10-tp8).
 
 ### v18.1-vision baseline (from v18.1 README)
 
@@ -349,12 +349,12 @@ setting further boosts acceptance.
 | Recipe | KV cache | Use when |
 |---|---|---|
 | [`glm52-int4int8-v19-vision.yaml`](recipes/glm52-int4int8-v19-vision.yaml) | `fp8_ds_mla` | **Default.** All v19 workloads. |
-| [`glm52-int4int8-v18.1-vision-nvfp4.yaml`](recipes/glm52-int4int8-v18.1-vision-nvfp4.yaml) | `nvfp4_ds_mla` | Opt-in for max-context workloads (~1.52× KV density). |
+| [`glm52-int4int8-v18.1-vision-nvfp4.yaml`](../v18-vision/recipes/glm52-int4int8-v18.1-vision-nvfp4.yaml) | `nvfp4_ds_mla` | Opt-in for max-context workloads (~1.52× KV density). |
 
 Launch (from spark-vllm-docker):
 ```bash
 # Default (fp8)
-./run-recipe.sh ../gb10-glm-5.2/v18-vision/recipes/glm52-int4int8-v19-vision.yaml --setup
+./run-recipe.sh ../gb10-glm-5.2/v19/recipes/glm52-int4int8-v19-vision.yaml --setup
 ```
 
 Key serve args:
