@@ -50,9 +50,25 @@ docker pull ghcr.io/ciprianveg/gb10-glm-5.2:v19-vision
   projector. Because 5.3 shares 5.2's text hidden size (6144), the 5.2 projector
   transfers with no retraining.
 - **GLM-5.2 v19** — the entire stack (image, patches, recipes, vision method) comes
-  from [glm-5.2/v19](../glm-5.2/v19/README.md); see its
-  [credits section](../glm-5.2/v19/README.md#credits) for the full upstream list
-  (local-inference-lab/vllm PR #175, CosmicRaisins, QuantTrio, Light Foundry Notes, …).
+  from [glm-5.2/v19](../glm-5.2/v19/README.md). Its upstream credits, inherited here:
+  - **local-inference-lab/vllm**
+    ([PR #175](https://github.com/local-inference-lab/vllm/pull/175), branch
+    `gilded-gnosis-v18`): the DCP1 query split (v19's long-context prefill gain) and
+    the vLLM fork with DCP + `B12X_MLA_SPARSE` the image is built on.
+  - **CosmicRaisins**
+    ([CosmicRaisins/glm-5.2-gb10](https://github.com/CosmicRaisins/glm-5.2-gb10),
+    Apache-2.0): adaptive MTP 2/4/5 controller, GLM-5.2 vision model overlay
+    (`glm5v.py` + registry), the composite checkpoint assembler this guide's script
+    derives from, pr72-1 DCP draft config propagation.
+  - **QuantTrio**
+    ([QuantTrio/GLM-5.2-Int4-Int8Mix](https://huggingface.co/QuantTrio/GLM-5.2-Int4-Int8Mix),
+    MIT): the GLM-5.2 Int4-Int8Mix checkpoint the v19 stack was built and tested with.
+  - **Light Foundry Notes**
+    ([@light_foundry on x.com](https://x.com/light_foundry)): the native-sm_121
+    enablement approach (`CUDA_SUPPORTED_ARCHS` += `12.1`, FP4 arch guard revert).
+  - **v18.1 determinism report** (community contribution): the
+    `deterministic-moe-align` patch and MoE placement nondeterminism root-cause
+    analysis baked into the v19 image.
 - **eugr/spark-vllm-docker** — build harness + cluster launcher.
 
 ## License
