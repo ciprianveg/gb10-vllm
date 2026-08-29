@@ -18,10 +18,10 @@ translate directly to 5.3.
 
 ## Versions
 
-| Version | Recipe | What |
-|---|---|---|
-| **v19** (text-only) | [`v19/recipes/glm53-int4int8-v19.yaml`](v19/recipes/glm53-int4int8-v19.yaml) | Serves the Tech2wild checkpoint directly. TP=8 + PP=1, fp8 KV cache, adaptive MTP 2/4/5. |
-| **v19-vision** (text + vision) | [`v19-vision/recipes/glm53-int4int8-v19-vision.yaml`](v19-vision/recipes/glm53-int4int8-v19-vision.yaml) | Zero-copy composite: 5.3 text + frozen Baseten MoonViT-3d vision tower + PatchMerger projector. Same vision-adding method as GLM-5.2 — see the [vision guide](v19-vision/README.md). |
+| Version | Guide | Recipe | What |
+|---|---|---|---|
+| **v19** (text-only) | [v19/README.md](v19/README.md) | [`v19/recipes/glm53-int4int8-v19.yaml`](v19/recipes/glm53-int4int8-v19.yaml) | Serves the Tech2wild checkpoint directly. TP=8 + PP=1, fp8 KV cache, adaptive MTP 2/4/5. |
+| **v19-vision** (text + vision) | [v19-vision/README.md](v19-vision/README.md) | [`v19-vision/recipes/glm53-int4int8-v19-vision.yaml`](v19-vision/recipes/glm53-int4int8-v19-vision.yaml) | Zero-copy composite: 5.3 text + frozen Baseten MoonViT-3d vision tower + PatchMerger projector. Same vision-adding method as GLM-5.2. |
 
 Both recipes are the [GLM-5.2 v19 recipe](../glm-5.2/v19/recipes/glm52-int4int8-v19-vision.yaml)
 with only the model swapped (and the mm flags removed for text-only).
