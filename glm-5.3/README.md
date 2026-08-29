@@ -1,4 +1,4 @@
-# GLM-5.3 (Int4-Int8Mix) on GB10 — v19 + v19-vision
+# GLM-5.3 (Int4-Int8Mix) on GB10 — the v19 stack, text or text+vision
 
 GLM-5.3 inference on NVIDIA DGX Spark (GB10, SM121) using the **proven GLM-5.2 v19 image,
 unchanged** — no rebuild, no runtime mods.
