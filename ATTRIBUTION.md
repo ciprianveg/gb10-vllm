@@ -55,6 +55,7 @@ The `v18-vision` image is a 9-file overlay on top of `v18-prod`. Full credit to 
 | **aidendle94 / Aiden Le** | [huggingface.co/aidendle94](https://huggingface.co/aidendle94) | — | Original acceptance-length adaptive speculative decoding controller concept that CosmicRaisins forward-ported and tuned into the 2/4/5 production policy |
 | **baseten** | [baseten/GLM-5.2-Vision-NVFP4](https://huggingface.co/baseten/GLM-5.2-Vision-NVFP4) @ `f6eab6117386a0c69152fdf272dc65bfd0254f9f` | — | GLM-5.2 Vision weights — frozen MoonViT-3d vision tower (from Kimi-K2.6) + trained 49.5M-param PatchMerger projector (`1152 → 4607 → 6144`) |
 | **QuantTrio** | [QuantTrio/GLM-5.2-Int4-Int8Mix](https://huggingface.co/QuantTrio/GLM-5.2-Int4-Int8Mix) | MIT | Int4-Int8Mix base text checkpoint (256 experts, in-checkpoint MTP layer 78) — the text half of the composite model |
+| **Tech2wild / Tony (@Tech2Wild)** | [Tech2wild/GLM-5.3-Int4-Int8Mix](https://huggingface.co/Tech2wild/GLM-5.3-Int4-Int8Mix) | — | GLM-5.3 Int4-Int8Mix quantized checkpoint (compressed-tensors) — text half of the GLM-5.3 composite (`glm-5.3/`) |
 | **local-inference-lab/vllm** | branch `gilded-gnosis-v18` | Apache-2.0 | vLLM fork with DCP + `B12X_MLA_SPARSE` (the v18-prod base the overlay sits on) |
 | **eugr/spark-vllm-docker** | [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker) | Apache-2.0 | Build harness + cluster launcher (recipe runner) |
 
