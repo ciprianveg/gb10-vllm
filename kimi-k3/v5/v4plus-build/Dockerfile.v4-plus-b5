@@ -1,0 +1,5 @@
+FROM v4-plus-b4
+# v4-plus-b5: b4 + CUDA graph capture fixes (#617 sync + #628 planned row counts)
+RUN echo "v4-plus-b5 build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b4+cgfix-617-sync+628-rowcounts" > /V4PLUS-B5-BUILD-STAMP
+COPY mods/v4plus-cgfix/ /tmp/v4plus-cgfix-mods/
+RUN set -e;     bash /tmp/v4plus-cgfix-mods/run.sh;     rm -rf /tmp/v4plus-cgfix-mods

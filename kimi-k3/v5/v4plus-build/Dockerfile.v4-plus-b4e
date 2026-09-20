@@ -1,0 +1,5 @@
+FROM v4-plus-b4d
+# v4-plus-b4e: b4d + RoCEnante one-shot collectives for the DCP group
+RUN echo "v4-plus-b4e build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b4d+rocante-dcp" > /V4PLUS-B4E-BUILD-STAMP
+COPY mods/v4plus-rocante-dcp/ /tmp/b4e-mods/
+RUN set -e;     bash /tmp/b4e-mods/run.sh;     rm -rf /tmp/b4e-mods

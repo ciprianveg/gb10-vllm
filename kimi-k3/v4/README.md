@@ -8,15 +8,16 @@ GB10 (sm121) clusters.
 
 | Version | Stack | Status |
 |---------|-------|--------|
-| **v4** | v4 base (`v4-sm121-r36`) + 5 baked mods (DFlash2 MLA drafting, #52388/#51508/#50169) + b12x/vLLM optimizations | **Current published production** 🚀 |
+| **v4** | v3 image + upstream fork-tree advance (vLLM `e08d796f` / b12x `b8c7153c`) + 5 baked mods (DFlash2 MLA drafting, #52388/#51508/#50169) + b12x/vLLM optimizations | **Current published production** 🚀 |
 | v3 | v2 image + vLLM@0232bce6 overlay (MoE fusion #385/#386) + 11 mods baked | [Superseded](../v3/README.md) |
 | v2 | `vllm-node-kimi3-sm121` (vLLM@881ac39 + B12X) + RedHat DSpark, runtime mods | [Superseded](../v2/README.md) |
 | v1 | `vllm-node-kimi3-hh` (B12X_MLA + Inferact DSpark) | [Historic artifact](../v1/README.md) |
 
-v4-prd is a **thin overlay** (~15 s build, no vLLM recompile) on the v4 base
-image. In the internal eugr development cycle the base was built as
-**`v4-sm121-r29` → `v4-sm121-r36`** (fork-revision-numbered images); the
-published `v4-prd` tag = `v4-sm121-r36` + the 5-mod overlay.
+v4-prd is a **thin overlay** on the published v3 image: the vLLM + b12x trees
+are advanced to the upstream fork pins (vLLM `e08d796f`, b12x `b8c7153c` —
+public `voipmonitor` branch tips) and the 5 mods are baked in. No CUDA
+recompilation; see [`BUILD-SM121-IMAGE.md`](BUILD-SM121-IMAGE.md) for the
+exact fetch commands.
 
 ## What's new in v4
 
@@ -32,8 +33,8 @@ published `v4-prd` tag = `v4-sm121-r36` + the 5-mod overlay.
 - **Prefill/decode optimizations**: b12x #271 fused DFlash K=3 verification
   (fixes the long-context decode regression at `nst=3`), myshytf/b12x #3 MoE
   plan memoization (~45% prefill), vllm #52502 GB10 fused-MoE FP8 tuning configs.
-- **Engine**: `vLLM v0.26.1rc0+kimi.k3.aligned` (fork tree r36 `e08d796f`),
-  b12x `f0066813`, torch 2.13.0, FlashInfer 0.6.15.post1, lazy CuTeDSL compile.
+- **Engine**: `vLLM v0.26.1rc0+kimi.k3.aligned` (upstream fork tree vLLM
+  `e08d796f` / b12x `b8c7153c`), torch 2.13.0, FlashInfer 0.6.15.post1, lazy CuTeDSL compile.
 
 ## Quick Start
 
@@ -55,7 +56,9 @@ Thin overlay build guide (base provenance + reproducibility notes):
 [`BUILD-SM121-IMAGE.md`](BUILD-SM121-IMAGE.md)
 
 ```bash
-./kimi-k3/v4/build.sh            # build local tag (needs a v4 base image)
+./kimi-k3/v4/build.sh            # build local tag (pulls the public v3 base)
+./kimi-k3/v4/build.sh --push     # build + push to GHCR
+```
 
 ## Cache requirements
 

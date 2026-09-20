@@ -1,0 +1,5 @@
+FROM v4-plus-b4
+# v4-plus-b4d: b4 + 8-row fused verify un-gated for DCP>1
+RUN echo "v4-plus-b4d build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b4+dcpfix-verify8-dcp" > /V4PLUS-B4D-BUILD-STAMP
+COPY mods/v4plus-dcpfix/ /tmp/b4d-mods/
+RUN set -e;     bash /tmp/b4d-mods/run.sh;     rm -rf /tmp/b4d-mods

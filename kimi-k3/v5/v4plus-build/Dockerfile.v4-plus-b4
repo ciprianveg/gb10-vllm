@@ -1,0 +1,5 @@
+FROM v4-plus-b3
+# v4-plus-b4: b3 + 8-row fused verify tile (nst 4-7, auto-select by nst)
+RUN echo "v4-plus-b4 build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b3+verify-tile-8row-tpr" > /V4PLUS-B4-BUILD-STAMP
+COPY mods/v4plus-batch4/ /tmp/v4plus-b4-mods/
+RUN set -e;     bash /tmp/v4plus-b4-mods/run.sh;     rm -rf /tmp/v4plus-b4-mods

@@ -1,0 +1,5 @@
+FROM ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v4-prd
+# v4-plus: stable v4 + fork post-Aug12 speedups (Batch 1)
+RUN echo "v4-plus build: $(date -u +%Y-%m-%dT%H:%MZ) mods: rocenante-kernel(#295),rocenante-adapter(#597-adapted),568-riders,b12x-f5394625c-spec-merge" > /V4PLUS-BUILD-STAMP
+COPY mods/ /tmp/v4plus-mods/
+RUN set -e;     bash /tmp/v4plus-mods/v4plus-batch1/run.sh;     rm -rf /tmp/v4plus-mods

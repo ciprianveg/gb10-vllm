@@ -1,0 +1,5 @@
+FROM v6
+# v6b: v6 + eager DSpark draft (fork #396: draft graph replay faults; target keeps FULL graphs)
+RUN echo "v6b build: $(date -u +%Y-%m-%dT%H:%MZ) mods: v6+cgfix3-eager-draft" > /V6B-BUILD-STAMP
+COPY mods/v4plus-cgfix3/ /tmp/v6b-mods/
+RUN set -e;     bash /tmp/v6b-mods/run.sh;     rm -rf /tmp/v6b-mods

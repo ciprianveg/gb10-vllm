@@ -1,0 +1,5 @@
+FROM v4-plus-b5
+# v6: b5 + eager DFlash context-KV (disables the crashing #251 context-graph phase)
+RUN echo "v6 build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b5+cgfix2-eager-context-kv" > /V6-BUILD-STAMP
+COPY mods/v4plus-cgfix2/ /tmp/v6-mods/
+RUN set -e;     bash /tmp/v6-mods/run.sh;     rm -rf /tmp/v6-mods

@@ -1,0 +1,10 @@
+FROM v4-plus-b4e
+# v4-plus-b4f (mid version): b4e + proven serving mods baked in.
+# - v4plus-splitfloor: 48-SM split floor (VLLM_K3_MIN_SPLITS, +5% measured)
+# - fix-b12x-ep-empty-meta: tolerate empty EP metadata in workspace planning
+#   (unblocks B12X+EP boot; inert without EP)
+# NOT included: PP2 patches (unproven on this tree), cgfix/v6 (separate line).
+RUN echo "v4-plus-b4f build: $(date -u +%Y-%m-%dT%H:%MZ) mods: b4e+splitfloor+ep-empty-meta" > /V4PLUS-B4F-BUILD-STAMP
+COPY mods/v4plus-splitfloor/ /tmp/b4f-mods/splitfloor/
+COPY mods/fix-b12x-ep-empty-meta/ /tmp/b4f-mods/epfix/
+RUN set -e;     bash /tmp/b4f-mods/splitfloor/run.sh;     bash /tmp/b4f-mods/epfix/run.sh;     rm -rf /tmp/b4f-mods

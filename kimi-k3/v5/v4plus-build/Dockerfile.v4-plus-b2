@@ -1,0 +1,5 @@
+FROM v4-plus
+# v4-plus-b2: batch1 + fused-verify(#271+#565), fp8 draft(#570), workspace reserve
+RUN echo "v4-plus-b2 build: $(date -u +%Y-%m-%dT%H:%MZ) mods: batch1+b12x271-fused-verify+565-plans+fp8-draft+workspace-reserve" > /V4PLUS-B2-BUILD-STAMP
+COPY mods/v4plus-batch2/ /tmp/v4plus-b2-mods/
+RUN set -e;     bash /tmp/v4plus-b2-mods/run.sh;     rm -rf /tmp/v4plus-b2-mods

@@ -1,0 +1,5 @@
+FROM v6b
+# v6c: v6b + skippable post-capture warmup (VLLM_K3_SKIP_WARMUP)
+RUN echo "v6c build: $(date -u +%Y-%m-%dT%H:%MZ) mods: v6b+skip-warmup" > /V6C-BUILD-STAMP
+COPY mods/v4plus-cgwu/ /tmp/v6c-mods/
+RUN set -e;     bash /tmp/v6c-mods/run.sh;     rm -rf /tmp/v6c-mods

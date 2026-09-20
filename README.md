@@ -10,7 +10,8 @@ and applying runtime mods.
 
 | Model | Subtree | Highlights |
 |-------|---------|------------|
-| **KIMI-K3** (v3, MoE fusion + DCP8 + RedHat DSpark) | [kimi-k3/v3](kimi-k3/v3/) | **Recommended** — TP16+DCP8, 2M total ctx capacity, >270K-context loop fixed, no runtime mods |
+| **KIMI-K3** (v5, RoCE collectives + fused verify + baked perf stack) | [kimi-k3/v5](kimi-k3/v5/) | **Recommended** — TP16+DCP8, RoCEnante TP/DCP collectives, fused verify TILE8+nst6, `_C` rebuild (#54896/#55180), adaptive draft depth recipe |
+| **KIMI-K3** (v3, MoE fusion + DCP8 + RedHat DSpark) | [kimi-k3/v3](kimi-k3/v3/) | Superseded by v5 — TP16+DCP8, 2M total ctx capacity, >270K-context loop fixed, no runtime mods |
 | **KIMI-K3** (v2, sm121 image + RedHat DSpark) | [kimi-k3/v2](kimi-k3/v2/) | Superseded by v3 — TP16 (~500K ctx) / TP8+PP2 (~1M ctx) |
 | **KIMI-K3** (v1, B12X_MLA + DSpark) | [kimi-k3/v1](kimi-k3/v1/) | Historic artifact — kept for reference only |
 | **GLM-5.3** (Int4-Int8Mix) | [glm-5.3](glm-5.3/) | v19 + v19-vision — same arch as 5.2, runs on the proven v19 image unchanged; vision via the same zero-copy Baseten composite |

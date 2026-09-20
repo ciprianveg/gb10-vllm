@@ -1,0 +1,119 @@
+# KIMI-K3 MXFP4 — v5-prd image + TP16 + DCP8 + RedHat DSpark s6 (static draft depth)
+
+recipe_version: "1"
+name: kimi-k3-dcp-tp16-prd
+description: KIMI-K3 v5-prd (baked mods) + DCP8 + RedHat DSpark s6, TP16, 16x GB10
+raw_entrypoint: true
+shared_weights_nfs: true
+cluster_only: true
+
+container: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
+container_name: vllm_node_kimi3_sm121
+
+model: /root/models/models115/Kimi-K3
+
+defaults:
+  model_path: /root/models/models115/Kimi-K3
+  draft_model_path: /root/models/models11/RedHatAI-Kimi-K3-dspark
+
+mods:
+  - mods/drop-caches
+
+env:
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+  HF_HOME: /cache/huggingface
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  TORCH_CUDA_ARCH_LIST: "12.1a"
+  CUTE_DSL_ARCH: "sm_121a"
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  VLLM_KIMI_K3_SHARD_SP_SHARED_EXPERT: "1"
+  VLLM_KIMI_FUSED_TOPK16: "1"
+  VLLM_PREFIX_CACHE_RETENTION_INTERVAL: "0"
+  VLLM_USE_FLASHINFER_MOE_FP4: "1"
+  VLLM_USE_FLASHINFER_MOE_FP16: "1"
+  VLLM_NVFP4_GEMM_BACKEND: flashinfer-b12x
+  VLLM_FLASHINFER_ALLREDUCE_BACKEND: trtllm
+  FLASHINFER_DISABLE_VERSION_CHECK: "1"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:False
+  INSTANTTENSOR_MAX_FREE_MEM_USAGE: "0.5"
+  INSTANTTENSOR_COPY: "1"
+  INSTANTTENSOR_BUFFER_SIZE: "536870912"
+  CUDA_MODULE_LOADING: LAZY
+  CUDA_MODULE_DATA_LOADING: LAZY
+  SAFETENSORS_FAST_GPU: "1"
+  NCCL_NET: IB
+  NCCL_IB_DISABLE: "0"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_CROSS_NIC: "0"
+  NCCL_CUMEM_ENABLE: "0"
+  NCCL_IGNORE_CPU_AFFINITY: "1"
+  NCCL_DEBUG: WARN
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_BUFFSIZE: "8388608"
+  NCCL_SOCKET_IFNAME: "enp1s0f1np1"
+  GLOO_SOCKET_IFNAME: "enp1s0f1np1"
+  NCCL_MAX_NCHANNELS: "3"
+  NCCL_MIN_NCHANNELS: "3"
+  VLLM_K3_MIN_SPLITS: "0"
+  VLLM_ENABLE_ROCE_DCP: "1"
+  VLLM_K3_FP8_DRAFT: "0"
+  VLLM_DSPARK_DYNAMIC_MIN_DEPTH: "4"
+  VLLM_DSPARK_DYNAMIC_DRAFT_DEPTH: "0"
+  VLLM_ROCE_ALLREDUCE_MAX_SIZE: "1M"
+  VLLM_ROCE_ALLGATHER_MAX_SIZE: "8M"
+  VLLM_K3_FUSED_TILE: "8"
+  VLLM_K3_MARLIN_NOPAD: "1"
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "8"
+  MAX_JOBS: "2"
+  VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: "1"
+  RAY_CGRAPH_get_timeout: "1800"
+  RAY_memory_monitor_refresh_ms: "0"
+  TORCH_EXTENSIONS_DIR: /cache/huggingface/torch_extensions
+  TORCHINDUCTOR_CACHE_DIR: /cache/huggingface/torchinductor-cache
+  TRITON_CACHE_DIR: /cache/huggingface/triton-cache
+  XDG_CACHE_HOME: /cache/huggingface
+  B12X_MOE_WORKSPACE_TOKEN_LIMIT: "4096"
+  B12X_W4A16_PREFILL_FUSED_SUM: "1"
+  VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "0"
+  VLLM_K3_RETENTION_ALLOW_SPARSE: "0"
+  VLLM_K3_DRAFT_SKIP_VOCAB: "1"
+  VLLM_K3_EMPTY_CACHE_ON_PROCESS: "1"
+  VLLM_K3_PROCESS_MEM_DEBUG: "0"
+
+command: |
+  vllm serve {model_path} \
+    --served-model-name KIMI-K3 \
+    --attention-backend B12X_MLA \
+    --kda-prefill-backend triton \
+    --tensor-parallel-size 16 \
+    --pipeline-parallel-size 1 \
+    --decode-context-parallel-size 8 \
+    --dcp-kv-cache-interleave-size 1 \
+    --load-format instanttensor \
+    --distributed-executor-backend ray \
+    --moe-backend marlin \
+    --kv-cache-dtype fp8 \
+    --kv-cache-memory-bytes 3000000000 \
+    --gpu-memory-utilization 0.82 \
+    --max-model-len 500000 \
+    --host 0.0.0.0 --port 5002 \
+    --trust-remote-code \
+    --async-scheduling \
+    --enable-chunked-prefill \
+    --enable-prefix-caching \
+    --max-num-batched-tokens 4096 \
+    --max-num-seqs 8 \
+    --reasoning-parser kimi_k3 \
+    --tool-call-parser kimi_k3 \
+    --enable-auto-tool-choice \
+    --enforce-eager \
+    --attention-config '{{"use_prefill_query_quantization":true}}' \
+    --limit-mm-per-prompt '{{"image":2,"video":0}}' \
+    --quantization-config '{{"linear":{{"weight":"mxfp8"}},"shared_experts":{{"weight":"fp8_per_block_static"}},"ignore":["re:.*self_attn.*","re:.*lm_head","re:.*vision_tower.*","re:.*mm_projector.*","re:.*block_sparse_moe.gate"]}}' \
+    --speculative-config '{{"method":"dspark","model":"{draft_model_path}","num_speculative_tokens":6,"draft_tensor_parallel_size":16,"draft_sample_method":"probabilistic","rejection_sample_method":"block","attention_backend":"TRITON_ATTN"}}' \
+    --disable-uvicorn-access-log \
+    --disable-custom-all-reduce
