@@ -76,6 +76,8 @@ Coding game-bench, 3000-token runs:
 | C4 | 58.00 agg / 14.50 mean stream |
 | C8 | **87.12 agg** / 10.89 mean stream |
 
+* 136t/s peak speed at C8
+
 llama-bench (coherent corpus — DSpark acceptance is on the lower side here):
 
 | test | t/s | peak t/s |
