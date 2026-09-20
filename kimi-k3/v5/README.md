@@ -7,7 +7,7 @@ decoding on 16-node DGX Spark GB10 (sm121) clusters.
 
 | Version | Stack | Status |
 |---------|-------|--------|
-| **v5** | v4-prd + RoCEnante collectives, fused verify, fp8 draft, b12x spec-merge + v6 KDA/MoE kernel mods + `_C` rebuild (#54896/#55180) + perf-layer stack | **Current production** 🚀 |
+| **v5** | v4-prd + RoCEnante collectives, fused verify, fp8 draft, b12x spec-merge + KDA/MoE kernel mods + `_C` rebuild (#54896/#55180) + perf-layer stack | **Current production** 🚀 |
 | v4 | v4 base (`v4-sm121-r36`) + 5 baked mods (DFlash2 MLA drafting, #52388/#51508/#50169) | [Superseded](../v4/README.md) |
 | v3 | v2 image + vLLM@0232bce6 overlay (MoE fusion #385/#386) + 11 mods baked | [Superseded](../v3/README.md) |
 | v2 | `vllm-node-kimi3-sm121` (vLLM@881ac39 + B12X) + RedHat DSpark, runtime mods | [Superseded](../v2/README.md) |
@@ -18,7 +18,7 @@ decoding on 16-node DGX Spark GB10 (sm121) clusters.
 - **RoCEnante TP+DCP collectives**: one-shot all-reduce (TP) and all-gather
   (DCP) over the RoCE v2 fabric, replacing NCCL for the small decode-size
   messages.
-- **Fused verify TILE8 + nst6**: 8-row fused spec-verify kernel, 6 speculative
+- **Fused verify TILE8/TILE4 + nst6/nst3**: 8/4-row fused spec-verify kernel, 6 or 3 speculative
   tokens, DCP-un-gated.
 - **Recompiled `_C` extension**: MLA cache-kernel epilogue (#54896) + SM12.x
   blockwise-FP8 CUTLASS CTA swizzle (#55180) baked into the native build.
