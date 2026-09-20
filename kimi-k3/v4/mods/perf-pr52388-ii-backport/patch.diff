@@ -1,0 +1,263 @@
+diff --git a/tests/models/kimi_k3/test_kda_metadata.py b/tests/models/kimi_k3/test_kda_metadata.py
+index 069c9a4d7a8e..0d3b12d8ed8f 100644
+--- a/tests/models/kimi_k3/test_kda_metadata.py
++++ b/tests/models/kimi_k3/test_kda_metadata.py
+@@ -280,6 +280,13 @@ def test_recoverssm_spec_uses_one_state_slot_and_current_window(
+         use_recoverssm=True,
+     )
+     assert isinstance(builder, KimiK3KDAMetadataBuilder)
++    if mamba_cache_mode == "align":
++        builder.mamba_aligned_state_indices = mamba_get_block_table_tensor(
++            common_attn_metadata.block_table_tensor,
++            common_attn_metadata.seq_lens,
++            builder.kv_cache_spec,
++            mamba_cache_mode,
++        )
+     context = builder.recoverssm_context
+     assert context is not None
+     actual = builder.build(
+@@ -456,6 +463,36 @@ def test_kimi_k3_kda_backend_uses_private_metadata_builder():
+     assert issubclass(KimiK3KDAMetadataBuilder, GDNAttentionMetadataBuilder)
+ 
+ 
++def test_kimi_k3_metadata_uses_precomputed_aligned_state_indices():
++    batch = BatchSpec(seq_lens=[40, 30], query_lens=[1, 1])
++    common_attn_metadata = create_common_attn_metadata(
++        batch, BLOCK_SIZE, DEVICE
++    ).replace(is_prefilling=torch.tensor([False, False]))
++    builder = _make_builder(
++        KimiK3KDAMetadataBuilder,
++        num_speculative_tokens=2,
++        full_cuda_graph=False,
++        mamba_cache_mode="align",
++    )
++    assert isinstance(builder, KimiK3KDAMetadataBuilder)
++    precomputed_indices = torch.tensor(
++        [
++            [101, 102, 103],
++            [201, 202, 203],
++            [301, 302, 303],
++        ],
++        dtype=torch.int32,
++    )
++    builder.mamba_aligned_state_indices = precomputed_indices
++
++    metadata = builder.build(0, common_attn_metadata)
++
++    torch.testing.assert_close(
++        metadata.non_spec_state_indices_tensor,
++        precomputed_indices[: batch.batch_size, 0],
++    )
++
++
+ @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+ def test_stage_spec_decode_metadata_matches_pytorch():
+     device = torch.device("cuda")
+diff --git a/vllm/models/kimi_k3/nvidia/kda_metadata.py b/vllm/models/kimi_k3/nvidia/kda_metadata.py
+index 2154eaa3c51f..c7efed4fd002 100644
+--- a/vllm/models/kimi_k3/nvidia/kda_metadata.py
++++ b/vllm/models/kimi_k3/nvidia/kda_metadata.py
+@@ -296,6 +296,8 @@ def commit_recoverssm_state(
+ 
+ 
+ class KimiK3KDAMetadataBuilder(GDNAttentionMetadataBuilder):
++    mamba_aligned_state_indices: torch.Tensor | None = None
++
+     def __init__(
+         self,
+         kv_cache_spec: MambaSpec,
+@@ -357,12 +359,13 @@ def build(  # type: ignore[override]
+         #   offsets = torch.arange(1 + num_speculative_blocks, dtype=torch.int32)
+         #   indices = (start[:, None] + offsets).to(torch.int64)
+         #   block_table_tensor = torch.gather(block_table, 1, indices)
+-        block_table_tensor = _mamba_get_block_table_tensor(
+-            m.block_table_tensor,
+-            m.seq_lens,
+-            self.kv_cache_spec,
+-            self.vllm_config.cache_config.mamba_cache_mode,
+-        )
++        if self.vllm_config.cache_config.mamba_cache_mode == "align":
++            assert self.mamba_aligned_state_indices is not None, (
++                "Aligned Mamba state indices must be precomputed"
++            )
++            block_table_tensor = self.mamba_aligned_state_indices[: m.num_reqs]
++        else:
++            block_table_tensor = m.block_table_tensor
+ 
+         if not self.use_spec_decode or num_decode_draft_tokens_cpu is None:
+             spec_sequence_masks_cpu = None
+diff --git a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+index c61a56f9aabf..eb76e5c18db1 100644
+--- a/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
++++ b/vllm/v1/worker/gpu/model_states/mamba_hybrid.py
+@@ -266,6 +266,24 @@ def prepare_attn(
+                 )
+             num_decode_draft_tokens_cpu = torch.from_numpy(num_decode_draft_tokens_np)
+ 
++        if self._align_mode:
++            mamba_group_ids, _ = self._get_mamba_group_info(kv_cache_config)
++            aligned_index_builders = []
++            for group_idx, group_id in enumerate(mamba_group_ids):
++                for group in attn_groups[group_id]:
++                    builder = group.get_metadata_builder(0)
++                    if hasattr(builder, "mamba_aligned_state_indices"):
++                        aligned_index_builders.append((group_idx, builder))
++            if aligned_index_builders:
++                ctx = self._ensure_align_ctx(
++                    kv_cache_config, mamba_group_ids, block_tables
++                )
++                all_group_indices = ctx.compute_aligned_state_indices(
++                    input_batch.seq_lens, num_reqs
++                )
++                for group_idx, builder in aligned_index_builders:
++                    builder.mamba_aligned_state_indices = all_group_indices[group_idx]
++
+         mamba_attn_metadata = MambaHybridAttnMetadata(
+             is_prefilling=is_prefilling,
+             num_accepted_tokens=num_accepted_tokens,
+diff --git a/vllm/v1/worker/mamba_utils.py b/vllm/v1/worker/mamba_utils.py
+index a0b89303dd86..98b7fd493f92 100644
+--- a/vllm/v1/worker/mamba_utils.py
++++ b/vllm/v1/worker/mamba_utils.py
+@@ -31,6 +31,70 @@
+ _TEMPORAL_TILES = 16
+ 
+ 
++@triton.jit(do_not_specialize=["num_requests"])
++def get_aligned_state_indices_multi_group_kernel(
++    block_table_ptrs_ptr,
++    seq_lens_ptr,
++    state_indices_ptr,
++    block_table_stride_req: tl.int64,
++    seq_lens_stride: tl.constexpr,
++    state_indices_stride_0: tl.constexpr,
++    state_indices_stride_1: tl.constexpr,
++    state_indices_stride_2: tl.constexpr,
++    num_requests,
++    CACHE_BLOCK_SIZE: tl.constexpr,
++    NUM_GROUPS: tl.constexpr,
++    BLOCK_GROUPS: tl.constexpr,
++    NUM_STATE_SLOTS: tl.constexpr,
++    BLOCK_STATE_SLOTS: tl.constexpr,
++    BLOCK_ROWS: tl.constexpr,
++):
++    rows = tl.program_id(0) * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
++    valid_row = rows < num_requests
++
++    seq_lens = tl.load(
++        seq_lens_ptr + rows * seq_lens_stride,
++        mask=valid_row,
++        other=1,
++    )
++    first_state_slot = tl.maximum((seq_lens - 1) // CACHE_BLOCK_SIZE, 0)
++
++    # load multiple block table for each group
++    groups = tl.arange(0, BLOCK_GROUPS)
++    valid_group = groups < NUM_GROUPS
++    group_base_addrs = tl.load(
++        block_table_ptrs_ptr + groups,
++        mask=valid_group,
++        other=0,
++    )
++    block_tables = group_base_addrs.to(tl.pointer_type(tl.int32))
++    state_slots = tl.arange(0, BLOCK_STATE_SLOTS)
++    valid_state_slot = state_slots < NUM_STATE_SLOTS
++    state_indices = tl.load(
++        block_tables[:, None, None]
++        + rows[None, :, None] * block_table_stride_req
++        + first_state_slot[None, :, None]
++        + state_slots[None, None, :],
++        mask=(
++            valid_group[:, None, None]
++            & valid_row[None, :, None]
++            & valid_state_slot[None, None, :]
++        ),
++    )
++    tl.store(
++        state_indices_ptr
++        + groups[:, None, None] * state_indices_stride_0
++        + rows[None, :, None] * state_indices_stride_1
++        + state_slots[None, None, :] * state_indices_stride_2,
++        state_indices,
++        mask=(
++            valid_group[:, None, None]
++            & valid_row[None, :, None]
++            & valid_state_slot[None, None, :]
++        ),
++    )
++
++
+ @triton.jit
+ def _memcpy_u64_tiled(
+     src_addr,
+@@ -684,6 +748,10 @@ class MambaSpecDecodeGPUContext:
+     block_table_ptrs: torch.Tensor
+     block_table_stride_req: int = 0
+ 
++    # persistent output for the once-per-step, all-group aligned-index launch.
++    # shape: [num_groups, max_num_reqs, 1 + num_speculative_blocks].
++    aligned_state_indices: torch.Tensor | None = None
++
+     # Per-request staging buffers (CPU+GPU mirrors). The runner stages
+     # values into the CPU view in ``_prepare_inputs`` and the fused kernel
+     # reads the GPU side. These only exist when the postprocess kernel is
+@@ -753,6 +821,15 @@ def create(
+             block_table_ptrs=torch.zeros(
+                 len(mamba_group_ids), dtype=torch.int64, device=device
+             ),
++            aligned_state_indices=torch.empty(
++                (
++                    len(mamba_group_ids),
++                    max_num_reqs,
++                    1 + mamba_spec.num_speculative_blocks,
++                ),
++                dtype=torch.int32,
++                device=device,
++            ),
+             mamba_state_idx_buf=make_buffer(max_num_reqs, dtype=torch.int32),
+             num_scheduled_tokens_buf=make_buffer(max_num_reqs, dtype=torch.int32),
+             num_computed_tokens_buf=make_buffer(max_num_reqs, dtype=torch.int32),
+@@ -927,6 +1004,43 @@ def _populate_metadata(
+ 
+         self.is_initialized = True
+ 
++    def compute_aligned_state_indices(
++        self,
++        seq_lens: torch.Tensor,
++        num_reqs: int,
++    ) -> torch.Tensor:
++        """compute every Mamba group's aligned physical state IDs in one launch."""
++        assert self.is_initialized
++        assert seq_lens.is_cuda
++        assert 0 <= num_reqs <= seq_lens.shape[0]
++        assert self.aligned_state_indices is not None
++        assert num_reqs <= self.aligned_state_indices.shape[1]
++        if num_reqs == 0:
++            return self.aligned_state_indices[:, :0]
++
++        num_state_slots = self.aligned_state_indices.shape[2]
++        block_rows = 32
++        grid = (triton.cdiv(num_reqs, block_rows),)
++        get_aligned_state_indices_multi_group_kernel[grid](
++            self.block_table_ptrs,
++            seq_lens,
++            self.aligned_state_indices,
++            self.block_table_stride_req,
++            seq_lens.stride(0),
++            self.aligned_state_indices.stride(0),
++            self.aligned_state_indices.stride(1),
++            self.aligned_state_indices.stride(2),
++            num_reqs,
++            CACHE_BLOCK_SIZE=self.block_size,
++            NUM_GROUPS=self.num_groups,
++            BLOCK_GROUPS=triton.next_power_of_2(self.num_groups),
++            NUM_STATE_SLOTS=num_state_slots,
++            BLOCK_STATE_SLOTS=triton.next_power_of_2(num_state_slots),
++            BLOCK_ROWS=block_rows,
++            num_warps=1,
++        )
++        return self.aligned_state_indices[:, :num_reqs]
++
+     def run_fused_postprocess(
+         self,
+         num_reqs: int,
