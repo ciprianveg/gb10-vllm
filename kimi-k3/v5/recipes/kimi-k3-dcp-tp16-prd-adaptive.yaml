@@ -104,7 +104,7 @@ command: |
     --trust-remote-code \
     --async-scheduling \
     --enable-chunked-prefill \
-    --enable-prefix-caching \
+    --no-enable-prefix-caching \
     --max-num-batched-tokens 4096 \
     --max-num-seqs 8 \
     --reasoning-parser kimi_k3 \
