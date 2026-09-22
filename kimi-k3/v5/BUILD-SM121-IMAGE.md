@@ -34,7 +34,10 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
    `fix-mxfp4-triton-sm121` → `fix-k3-nan-gumbel` →
    `fix-dspark-adaptive-nst` → `fix-multistream-record-stream` +
    `fix-grammar-stream-fence` → `fix-dspark-draft-noeplb` +
-   `fix-adaptive-min-depth`.
+   `fix-adaptive-min-depth` → `fix-kv-dedup-retained-endpoints` +
+   `fix-mamba-align-state-free` (APC-loop fixes: CoW drain dedup +
+   free two-steps-ago KDA align state; fixes 7.6× KV inflation —
+   400K APC-on completes at 22% peak, 0 preemptions).
 
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
@@ -60,8 +63,10 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "perf-pr55180-fp8-cta-swizzle: applied" $V/csrc/libtorch_stable/quantization/w8a8/cutlass/c3x/ && echo "FP8 swizzle OK"
     grep -rlq "fix-k3-marlin-nopad" $V/vllm && echo "marlin-nopad OK"
     grep -rlq "fix-adaptive-min-depth" $V/vllm && echo "min-depth OK"
+    grep -rlq "fix-kv-dedup-retained-endpoints" $V/vllm && echo "kv-dedup OK"
+    grep -rlq "_two_steps_ago_block_idx" $V/vllm && echo "mamba-align-state-free OK"
 '
 ```
 
 Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
-`min-depth OK`.
+`min-depth OK`, `kv-dedup OK`, `mamba-align-state-free OK`.
