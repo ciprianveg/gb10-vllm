@@ -39,7 +39,8 @@ RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
              fix-multistream-record-stream fix-grammar-stream-fence \
-             fix-dspark-draft-noeplb fix-adaptive-min-depth; do \
+             fix-dspark-draft-noeplb fix-adaptive-min-depth \
+             fix-kv-dedup-retained-endpoints fix-mamba-align-state-free; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \

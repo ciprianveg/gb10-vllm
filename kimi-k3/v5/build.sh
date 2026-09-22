@@ -90,6 +90,8 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "grammar-stream fence"    "fix-grammar-stream-fence"
     check "draft-noeplb"            "fix-dspark-draft-noeplb"
     check "adaptive-min-depth"      "fix-adaptive-min-depth"
+    check "kv-dedup"                "fix-kv-dedup-retained-endpoints"
+    check "mamba-align-state-free"  "_two_steps_ago_block_idx"
 ' || { echo "VERIFICATION FAILED"; exit 1; }
 
 if [[ "$PUSH" == true ]]; then
