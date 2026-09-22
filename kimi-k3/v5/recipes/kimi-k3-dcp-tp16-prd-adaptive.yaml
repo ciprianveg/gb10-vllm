@@ -1,8 +1,8 @@
-# KIMI-K3 MXFP4 — v5-prd image + TP16 + DCP8 + RedHat DSpark adaptive draft depth 4-6
+# KIMI-K3 MXFP4 — v5-prd image + TP16 + DCP16 + RedHat DSpark adaptive draft depth 4-6
 
 recipe_version: "1"
 name: kimi-k3-dcp-tp16-prd-adaptive
-description: KIMI-K3 v5-prd (baked mods) + DCP8 + RedHat DSpark adaptive draft depth 4-6, TP16, 16x GB10
+description: KIMI-K3 v5-prd (baked mods) + DCP16 + RedHat DSpark adaptive draft depth 4-6, TP16, 16x GB10
 raw_entrypoint: true
 shared_weights_nfs: true
 cluster_only: true
@@ -91,7 +91,7 @@ command: |
     --kda-prefill-backend triton \
     --tensor-parallel-size 16 \
     --pipeline-parallel-size 1 \
-    --decode-context-parallel-size 8 \
+    --decode-context-parallel-size 16 \
     --dcp-kv-cache-interleave-size 1 \
     --load-format instanttensor \
     --distributed-executor-backend ray \
