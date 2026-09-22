@@ -35,12 +35,20 @@ RUN bash /tmp/build-mods/perf-pr55356-54896-mla-cache-kernels/run.sh apply && \
     cd /opt/kimi-k3/vllm && python3 setup.py build_ext --inplace
 
 # Stage 3 — perf layers in commit order.
+# FIX2 batch (2026-09-22, image 0887adc360e9): the last 7 mods must run AFTER
+# fix-kv-dedup-retained-endpoints + fix-mamba-align-state-free (harden-apc-drain
+# anchors on their output text). fix-gb10-kv-sizing and fix-gb10-nvml-fallback
+# both touch platforms/cuda.py — verified order-independent.
 RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
              fix-multistream-record-stream fix-grammar-stream-fence \
              fix-dspark-draft-noeplb fix-adaptive-min-depth \
-             fix-kv-dedup-retained-endpoints fix-mamba-align-state-free; do \
+             fix-kv-dedup-retained-endpoints fix-mamba-align-state-free \
+             fix-moe-skip-padding-producer fix-long-prefill-singleton \
+             fix-sm121-cublas-oob fix-k3-kda-first-chunk \
+             fix-gb10-kv-sizing fix-gb10-nvml-fallback \
+             harden-apc-drain; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \

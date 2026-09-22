@@ -37,7 +37,30 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
    `fix-adaptive-min-depth` → `fix-kv-dedup-retained-endpoints` +
    `fix-mamba-align-state-free` (APC-loop fixes: CoW drain dedup +
    free two-steps-ago KDA align state; fixes 7.6× KV inflation —
-   400K APC-on completes at 22% peak, 0 preemptions).
+   400K APC-on completes at 22% peak, 0 preemptions) →
+   **FIX2 batch (2026-09-22)**:
+   `fix-moe-skip-padding-producer` (upstream #56079: mark SP/padding rows so
+   MoE routing invalidates them) → `fix-long-prefill-singleton` (upstream
+   #57951: long-prefill threshold not applied to singleton requests) →
+   `fix-sm121-cublas-oob` (lab#710 DCP half: SM120/121 cuBLAS reads-past-
+   allocation guard via head-major reduce-scatter) → `fix-k3-kda-first-chunk`
+   (upstream #51483: stateless first chunk misclassified as decode, read
+   unmasked conv/recurrent state) → `fix-gb10-kv-sizing` (upstream #55828:
+   process-scoped KV/memory accounting for GB10 UMA; inert while
+   `--kv-cache-memory-bytes` is pinned) → `fix-gb10-nvml-fallback`
+   (upstream #57378: NVML→torch fallback for GB10 device memory query) →
+   `harden-apc-drain` (oracle-spec'd hardening of the two APC-loop fixes:
+   ref_cnt underflow tripwire in `BlockPool.free_blocks`, guarded align-free
+   with block-identity + frontier check, env-gated drain debug counters
+   `VLLM_APC_DRAIN_DEBUG` / `VLLM_APC_DRAIN_ABORT`).
+   The last 7 must run AFTER the APC-loop fixes (harden-apc-drain anchors on
+   their output text). All are Python-only — no `_C` rebuild needed.
+
+> **Canonical FIX2 image:** `0887adc360e9` (stamp
+> `V5-PRD-FIX2-BAKE-STAMP 20260922150708`), produced as a fast overlay
+> commit on the FIX1 image `8d94b1da2cc4` and pushed as GHCR digest
+> `sha256:146fae23…` under `v5-prd` / `latest` / `v5-prd-sm121`. A full
+> `build.sh` run (order above) reproduces the same mod set from `v4-prd`.
 
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
@@ -65,8 +88,18 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "fix-adaptive-min-depth" $V/vllm && echo "min-depth OK"
     grep -rlq "fix-kv-dedup-retained-endpoints" $V/vllm && echo "kv-dedup OK"
     grep -rlq "_two_steps_ago_block_idx" $V/vllm && echo "mamba-align-state-free OK"
+    grep -rlq "fix-moe-skip-padding-producer" $V/vllm && echo "moe-skip-padding OK"
+    grep -rlq "fix-long-prefill-singleton" $V/vllm && echo "long-prefill-singleton OK"
+    grep -rlq "fix-sm121-cublas-oob" $V/vllm && echo "sm121-cublas-oob OK"
+    grep -rlq "fix-k3-kda-first-chunk" $V/vllm && echo "kda-first-chunk OK"
+    grep -rlq "fix-gb10-kv-sizing" $V/vllm && echo "gb10-kv-sizing OK"
+    grep -rlq "fix-gb10-nvml-fallback" $V/vllm && echo "gb10-nvml-fallback OK"
+    grep -rlq "harden-apc-drain" $V/vllm && echo "apc-drain-hardening OK"
 '
 ```
 
 Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
-`min-depth OK`, `kv-dedup OK`, `mamba-align-state-free OK`.
+`min-depth OK`, `kv-dedup OK`, `mamba-align-state-free OK`,
+`moe-skip-padding OK`, `long-prefill-singleton OK`, `sm121-cublas-oob OK`,
+`kda-first-chunk OK`, `gb10-kv-sizing OK`, `gb10-nvml-fallback OK`,
+`apc-drain-hardening OK`.
