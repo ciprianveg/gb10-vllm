@@ -66,7 +66,7 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > `sha256:146fae23…` under `v5-prd` / `latest` / `v5-prd-sm121`. A full
 > `build.sh` run (order above) reproduces the same mod set from `v4-prd`.
 
-> **Canonical FIX3 image (current):** `c7ca72aff22c` (stamp
+> **Canonical FIX3 image:** `c7ca72aff22c` (stamp
 > `V5-PRD-FIX3-BAKE-STAMP 20260922212739`), overlay on FIX2 adding the
 > lab#710 **MLA half** (the `_bmm_with_disjoint_batches` wrapper + 4
 > call-site wraps in mla_attention.py — the crash-class fix for the
@@ -74,13 +74,24 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > same three tags. The mod in `mods/fix-sm121-cublas-oob/` now carries
 > BOTH halves, so a full `build.sh` run reproduces FIX3 content directly.
 
+> **Canonical FIX4 image (current):** `6867b9d40e19` (stamp
+> `V5-PRD-FIX4-BAKE-STAMP 20260923115137`), overlay on FIX3 baking the
+> scheduler-level **no-mix** crash-class guard (`mods/fix-no-mixed-steps`:
+> decode requests skip steps carrying a prefill chunk with >32K tokens
+> remaining — closes the mixed-batch OOB class that kernel patches alone
+> could not cover; production canary PASS, 0 crash signature). GHCR digest
+> `sha256:02d51170…`, same three tags. A full `build.sh` run (order above,
+> with `fix-no-mixed-steps` last) reproduces FIX4 content directly.
+
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 ./kimi-k3/v5/build.sh --push     # build + push to GHCR
 ```
 
-`perf-pr54048-router-gemm-fam120` and `drop-caches` stay runtime-only mods
-(never baked).
+`perf-pr54048-router-gemm-fam120`, `drop-caches`, and
+`fix-prefill-decode-share` (the decode-favoring interleave — env-gated,
+needs the recipe's `VLLM_PREFILL_COMPUTE_SHARE_INTERVAL`) stay runtime-only
+mods (never baked).
 
 ## From scratch
 
@@ -108,6 +119,7 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "fix-gb10-kv-sizing" $V/vllm && echo "gb10-kv-sizing OK"
     grep -rlq "fix-gb10-nvml-fallback" $V/vllm && echo "gb10-nvml-fallback OK"
     grep -rlq "harden-apc-drain" $V/vllm && echo "apc-drain-hardening OK"
+    grep -rlq "fix-no-mixed-steps" $V/vllm && echo "no-mixed-steps OK"
 '
 ```
 
@@ -116,4 +128,4 @@ Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
 `moe-skip-padding OK`, `long-prefill-singleton OK`, `sm121-cublas-oob OK`,
 `mla-bmm-disjoint (lab#710 MLA half) OK`,
 `kda-first-chunk OK`, `gb10-kv-sizing OK`, `gb10-nvml-fallback OK`,
-`apc-drain-hardening OK`.
+`apc-drain-hardening OK`, `no-mixed-steps OK`.

@@ -100,6 +100,7 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "gb10-kv-sizing"          "fix-gb10-kv-sizing"
     check "gb10-nvml-fallback"      "fix-gb10-nvml-fallback"
     check "apc-drain-hardening"     "harden-apc-drain"
+    check "no-mixed-steps"          "fix-no-mixed-steps"
 ' || { echo "VERIFICATION FAILED"; exit 1; }
 
 if [[ "$PUSH" == true ]]; then

@@ -39,6 +39,9 @@ RUN bash /tmp/build-mods/perf-pr55356-54896-mla-cache-kernels/run.sh apply && \
 # fix-kv-dedup-retained-endpoints + fix-mamba-align-state-free (harden-apc-drain
 # anchors on their output text). fix-gb10-kv-sizing and fix-gb10-nvml-fallback
 # both touch platforms/cuda.py — verified order-independent.
+# FIX4 (2026-09-23, image 6867b9d40e19): append fix-no-mixed-steps last
+# (scheduler-only; order-independent vs the FIX2 batch and vs
+# fix-prefill-decode-share, which stays runtime-only — verified both ways).
 RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
@@ -48,7 +51,7 @@ RUN set -eux; \
              fix-moe-skip-padding-producer fix-long-prefill-singleton \
              fix-sm121-cublas-oob fix-k3-kda-first-chunk \
              fix-gb10-kv-sizing fix-gb10-nvml-fallback \
-             harden-apc-drain; do \
+             harden-apc-drain fix-no-mixed-steps; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \
