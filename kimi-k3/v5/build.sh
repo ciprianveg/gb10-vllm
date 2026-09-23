@@ -95,6 +95,7 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "moe-skip-padding"        "fix-moe-skip-padding-producer"
     check "long-prefill-singleton"  "fix-long-prefill-singleton"
     check "sm121-cublas-oob"        "fix-sm121-cublas-oob"
+    check "mla-bmm-disjoint"        "_bmm_with_disjoint_batches"
     check "kda-first-chunk"         "fix-k3-kda-first-chunk"
     check "gb10-kv-sizing"          "fix-gb10-kv-sizing"
     check "gb10-nvml-fallback"      "fix-gb10-nvml-fallback"

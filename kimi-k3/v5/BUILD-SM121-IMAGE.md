@@ -42,8 +42,12 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
    `fix-moe-skip-padding-producer` (upstream #56079: mark SP/padding rows so
    MoE routing invalidates them) → `fix-long-prefill-singleton` (upstream
    #57951: long-prefill threshold not applied to singleton requests) →
-   `fix-sm121-cublas-oob` (lab#710 DCP half: SM120/121 cuBLAS reads-past-
-   allocation guard via head-major reduce-scatter) → `fix-k3-kda-first-chunk`
+    `fix-sm121-cublas-oob` (lab#710, both halves: DCP head-major
+    reduce-scatter in dcp_utils.py + the MLA half added in FIX3 —
+    `_bmm_with_disjoint_batches` wrapper and 4 call-site wraps in
+    mla_attention.py, guarding the SM120/121 cuBLAS reads-past-allocation
+    on interleaved batched-MMAs; crash class: mixed chunked-prefill +
+    spec-decode step → illegal memory access at TP16) → `fix-k3-kda-first-chunk`
    (upstream #51483: stateless first chunk misclassified as decode, read
    unmasked conv/recurrent state) → `fix-gb10-kv-sizing` (upstream #55828:
    process-scoped KV/memory accounting for GB10 UMA; inert while
@@ -61,6 +65,14 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > commit on the FIX1 image `8d94b1da2cc4` and pushed as GHCR digest
 > `sha256:146fae23…` under `v5-prd` / `latest` / `v5-prd-sm121`. A full
 > `build.sh` run (order above) reproduces the same mod set from `v4-prd`.
+
+> **Canonical FIX3 image (current):** `c7ca72aff22c` (stamp
+> `V5-PRD-FIX3-BAKE-STAMP 20260922212739`), overlay on FIX2 adding the
+> lab#710 **MLA half** (the `_bmm_with_disjoint_batches` wrapper + 4
+> call-site wraps in mla_attention.py — the crash-class fix for the
+> TP16/DCP16 mixed-batch cuBLAS OOB). GHCR digest `sha256:af81b0d8…`,
+> same three tags. The mod in `mods/fix-sm121-cublas-oob/` now carries
+> BOTH halves, so a full `build.sh` run reproduces FIX3 content directly.
 
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
@@ -91,6 +103,7 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "fix-moe-skip-padding-producer" $V/vllm && echo "moe-skip-padding OK"
     grep -rlq "fix-long-prefill-singleton" $V/vllm && echo "long-prefill-singleton OK"
     grep -rlq "fix-sm121-cublas-oob" $V/vllm && echo "sm121-cublas-oob OK"
+    grep -rlq "_bmm_with_disjoint_batches" $V/vllm/model_executor && echo "mla-bmm-disjoint (lab#710 MLA half) OK"
     grep -rlq "fix-k3-kda-first-chunk" $V/vllm && echo "kda-first-chunk OK"
     grep -rlq "fix-gb10-kv-sizing" $V/vllm && echo "gb10-kv-sizing OK"
     grep -rlq "fix-gb10-nvml-fallback" $V/vllm && echo "gb10-nvml-fallback OK"
@@ -101,5 +114,6 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
 Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
 `min-depth OK`, `kv-dedup OK`, `mamba-align-state-free OK`,
 `moe-skip-padding OK`, `long-prefill-singleton OK`, `sm121-cublas-oob OK`,
+`mla-bmm-disjoint (lab#710 MLA half) OK`,
 `kda-first-chunk OK`, `gb10-kv-sizing OK`, `gb10-nvml-fallback OK`,
 `apc-drain-hardening OK`.
