@@ -104,6 +104,7 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "endpoint-cache"          "fix-k3-request-endpoint-cache"
     check "moe-serial-smalln"       "fix-k3-moe-serial-smalln"
     check "moe-gate-bf16-epilogue"  "fix-k3-moe-gate-bf16-epilogue"
+    ! grep -rq "fix-kv-dedup-retained-endpoints" $V/vllm/v1/core/kv_cache_manager.py && echo "revert-apc-leak OK (no leak markers)" || { echo "revert-apc-leak: MISSING (leak markers present)"; exit 1; }
 ' || { echo "VERIFICATION FAILED"; exit 1; }
 
 if [[ "$PUSH" == true ]]; then

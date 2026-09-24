@@ -49,6 +49,13 @@ RUN bash /tmp/build-mods/perf-pr55356-54896-mla-cache-kernels/run.sh apply && \
 # FIX7 (2026-09-24, image 6c0f809b9cdb): append fix-k3-moe-gate-bf16-epilogue
 # (model.py gate forward_local only; disjoint from the serial hunk which
 # touches the overlap branch 700 lines below — verified).
+# REVERT (no image tag — runtime-equivalent removal): append
+# fix-k3-revert-apc-leak LAST. It restores pristine per-occurrence CoW
+# retention by reversing fix-kv-dedup-retained-endpoints + removing
+# harden-apc-drain's kv_cache_manager sites (which anchor on deduped text,
+# hence last). harden's block_pool tripwire + single_type guard stay (other
+# files, untouched). Safe on trees that never had the leak (detects pristine
+# state, skips).
 RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
@@ -60,7 +67,7 @@ RUN set -eux; \
              fix-gb10-kv-sizing fix-gb10-nvml-fallback \
              harden-apc-drain fix-no-mixed-steps \
              fix-k3-request-endpoint-cache fix-k3-moe-serial-smalln \
-             fix-k3-moe-gate-bf16-epilogue; do \
+             fix-k3-moe-gate-bf16-epilogue fix-k3-revert-apc-leak; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \

@@ -106,6 +106,16 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > `sha256:f8792856…`, same three tags. A full `build.sh` run (order above,
 > with the three crash mods last) reproduces FIX7 content directly.
 
+> **Revert (no image tag — runtime-equivalent removal):**
+> `mods/fix-k3-revert-apc-leak` restores pristine per-occurrence CoW
+> retention by reversing `fix-kv-dedup-retained-endpoints` + removing
+> `harden-apc-drain`'s kv_cache_manager sites (which anchor on deduped
+> text, hence last in the loop). The dedup leaked +1 ref per shared block
+> per step (pinned pool → hangs + hit collapse); harden's block_pool
+> tripwire + single_type guard stay (other files, untouched). Safe on trees
+> that never had the leak (detects pristine state, skips). Recipes list it
+> as a runtime mod (harmless no-op where already reverted).
+
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 ./kimi-k3/v5/build.sh --push     # build + push to GHCR
@@ -146,6 +156,7 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "fix-k3-request-endpoint-cache" $V/vllm && echo "endpoint-cache OK"
     grep -rlq "fix-k3-moe-serial-smalln" $V/vllm && echo "moe-serial-smalln OK"
     grep -rlq "fix-k3-moe-gate-bf16-epilogue" $V/vllm && echo "moe-gate-bf16-epilogue OK"
+    ! grep -rlq "fix-kv-dedup-retained-endpoints" $V/vllm/v1/core/kv_cache_manager.py && echo "revert-apc-leak OK (no leak markers)"
 '
 ```
 
@@ -155,4 +166,5 @@ Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
 `mla-bmm-disjoint (lab#710 MLA half) OK`,
 `kda-first-chunk OK`, `gb10-kv-sizing OK`, `gb10-nvml-fallback OK`,
 `apc-drain-hardening OK`, `no-mixed-steps OK`, `endpoint-cache OK`,
-`moe-serial-smalln OK`, `moe-gate-bf16-epilogue OK`.
+`moe-serial-smalln OK`, `moe-gate-bf16-epilogue OK`,
+`revert-apc-leak OK (no leak markers)`.

@@ -18,6 +18,10 @@ defaults:
 
 mods:
   - mods/drop-caches
+  # fix-k3-revert-apc-leak: restores pristine per-occurrence CoW retention
+  # (reverses the leaky kv-dedup + harden-kv sites). Safe everywhere:
+  # applies where the leak is baked, skips pristine trees.
+  - mods/fix-k3-revert-apc-leak
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
