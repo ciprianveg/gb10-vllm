@@ -42,6 +42,13 @@ RUN bash /tmp/build-mods/perf-pr55356-54896-mla-cache-kernels/run.sh apply && \
 # FIX4 (2026-09-23, image 6867b9d40e19): append fix-no-mixed-steps last
 # (scheduler-only; order-independent vs the FIX2 batch and vs
 # fix-prefill-decode-share, which stays runtime-only — verified both ways).
+# FIX5 (2026-09-24, image d3f4c14ca83a): append fix-k3-request-endpoint-cache
+# (lab#732 port, 12 files; env-gated, inert by default — verified both ways).
+# FIX6 (2026-09-24, image cba6b4e37b0a): append fix-k3-moe-serial-smalln
+# (model.py MoE gate/down_proj only; order-independent — verified).
+# FIX7 (2026-09-24, image 6c0f809b9cdb): append fix-k3-moe-gate-bf16-epilogue
+# (model.py gate forward_local only; disjoint from the serial hunk which
+# touches the overlap branch 700 lines below — verified).
 RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
@@ -51,7 +58,9 @@ RUN set -eux; \
              fix-moe-skip-padding-producer fix-long-prefill-singleton \
              fix-sm121-cublas-oob fix-k3-kda-first-chunk \
              fix-gb10-kv-sizing fix-gb10-nvml-fallback \
-             harden-apc-drain fix-no-mixed-steps; do \
+             harden-apc-drain fix-no-mixed-steps \
+             fix-k3-request-endpoint-cache fix-k3-moe-serial-smalln \
+             fix-k3-moe-gate-bf16-epilogue; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \

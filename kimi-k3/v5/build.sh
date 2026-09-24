@@ -101,6 +101,9 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "gb10-nvml-fallback"      "fix-gb10-nvml-fallback"
     check "apc-drain-hardening"     "harden-apc-drain"
     check "no-mixed-steps"          "fix-no-mixed-steps"
+    check "endpoint-cache"          "fix-k3-request-endpoint-cache"
+    check "moe-serial-smalln"       "fix-k3-moe-serial-smalln"
+    check "moe-gate-bf16-epilogue"  "fix-k3-moe-gate-bf16-epilogue"
 ' || { echo "VERIFICATION FAILED"; exit 1; }
 
 if [[ "$PUSH" == true ]]; then

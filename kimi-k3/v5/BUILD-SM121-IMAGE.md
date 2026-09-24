@@ -74,7 +74,7 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > same three tags. The mod in `mods/fix-sm121-cublas-oob/` now carries
 > BOTH halves, so a full `build.sh` run reproduces FIX3 content directly.
 
-> **Canonical FIX4 image (current):** `6867b9d40e19` (stamp
+> **Canonical FIX4 image:** `6867b9d40e19` (stamp
 > `V5-PRD-FIX4-BAKE-STAMP 20260923115137`), overlay on FIX3 baking the
 > scheduler-level **no-mix** crash-class guard (`mods/fix-no-mixed-steps`:
 > decode requests skip steps carrying a prefill chunk with >32K tokens
@@ -82,6 +82,29 @@ docker pull ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
 > could not cover; production canary PASS, 0 crash signature). GHCR digest
 > `sha256:02d51170…`, same three tags. A full `build.sh` run (order above,
 > with `fix-no-mixed-steps` last) reproduces FIX4 content directly.
+
+> **Canonical FIX5 image:** `d3f4c14ca83a` (stamp
+> `V5-PRD-FIX5-BAKE-STAMP 20260924012142`), overlay on FIX4 baking the
+> request-endpoint cache (`mods/fix-k3-request-endpoint-cache`, lab#732
+> port: finished requests publish end positions so token-continuous turns
+> resume at the last computed token; both CodeRabbit bugs fixed in-port).
+> Validated on .111: crash-test PASS + token-level extension 8.8s vs 20.1s.
+> GHCR digest `sha256:02d51170…` (manifest), same three tags.
+
+> **Canonical FIX6 image:** `cba6b4e37b0a` (stamp
+> `V5-PRD-FIX6-BAKE-STAMP 20260924074851`), overlay on FIX5 baking the MoE
+> dual-stream serialization (`mods/fix-k3-moe-serial-smalln`: gate+down_proj
+> run sequentially for <=8-token decode steps — SM121 cuBLAS
+> EXECUTION_FAILED class). Validated live on TP16 prod: tool-bench c2
+> clean. GHCR digest `sha256:36e3e8d9…`, same three tags.
+
+> **Canonical FIX7 image (current):** `6c0f809b9cdb` (stamp
+> `V5-PRD-FIX7-BAKE-STAMP 20260924125125`), overlay on FIX6 baking the gate
+> epilogue swap (`mods/fix-k3-moe-gate-bf16-epilogue`: bf16 mm + explicit
+> .float() instead of the fused fp32 cuBLAS epilogue at small-M decode
+> steps). Validated on TP16 prod (tool-bench clean). GHCR digest
+> `sha256:f8792856…`, same three tags. A full `build.sh` run (order above,
+> with the three crash mods last) reproduces FIX7 content directly.
 
 ```bash
 ./kimi-k3/v5/build.sh            # local tag: ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd
@@ -120,6 +143,9 @@ docker run --rm --entrypoint bash ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd -c
     grep -rlq "fix-gb10-nvml-fallback" $V/vllm && echo "gb10-nvml-fallback OK"
     grep -rlq "harden-apc-drain" $V/vllm && echo "apc-drain-hardening OK"
     grep -rlq "fix-no-mixed-steps" $V/vllm && echo "no-mixed-steps OK"
+    grep -rlq "fix-k3-request-endpoint-cache" $V/vllm && echo "endpoint-cache OK"
+    grep -rlq "fix-k3-moe-serial-smalln" $V/vllm && echo "moe-serial-smalln OK"
+    grep -rlq "fix-k3-moe-gate-bf16-epilogue" $V/vllm && echo "moe-gate-bf16-epilogue OK"
 '
 ```
 
@@ -128,4 +154,5 @@ Expected: `SO OK`, `MLA epilogue OK`, `FP8 swizzle OK`, `marlin-nopad OK`,
 `moe-skip-padding OK`, `long-prefill-singleton OK`, `sm121-cublas-oob OK`,
 `mla-bmm-disjoint (lab#710 MLA half) OK`,
 `kda-first-chunk OK`, `gb10-kv-sizing OK`, `gb10-nvml-fallback OK`,
-`apc-drain-hardening OK`, `no-mixed-steps OK`.
+`apc-drain-hardening OK`, `no-mixed-steps OK`, `endpoint-cache OK`,
+`moe-serial-smalln OK`, `moe-gate-bf16-epilogue OK`.
