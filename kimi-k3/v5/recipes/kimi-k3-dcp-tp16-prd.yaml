@@ -101,8 +101,8 @@ command: |
     --distributed-executor-backend ray \
     --moe-backend marlin \
     --kv-cache-dtype fp8 \
-    --kv-cache-memory-bytes 3000000000 \
-    --gpu-memory-utilization 0.82 \
+    --kv-cache-memory-bytes 1500000000 \
+    --gpu-memory-utilization 0.805 \
     --max-model-len 500000 \
     --host 0.0.0.0 --port 5002 \
     --trust-remote-code \
