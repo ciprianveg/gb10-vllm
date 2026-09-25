@@ -18,9 +18,8 @@
 > no-mix, serial, epilogue, revert) is ABANDONED: it cost ~30% base decode
 > speed and its kv-dedup member was a CoW-ref leak. The base keeps pristine
 > per-occurrence CoW retention — no revert mod needed. Crash-guard note:
-> this base has NO baked no-mix gate; if mixed-step crashes appear, apply
-> `fix-no-mixed-steps` + `fix-k3-nomix-standalone` at runtime with
-> `VLLM_NO_MIX_ARM=1` (see the mods' headers). `drop-caches` stays a
+> this base has NO baked no-mix gate; if mixed-step crashes appear, the
+> guard will be baked into a future image version. `drop-caches` stays a
 > recipe-level runtime mod (a loop, nothing to bake).
 
 > **Image:** `ghcr.io/ciprianveg/gb10-vllm/kimi-k3:v5-prd` (linux/arm64, sm121, ~29.5 GB, flattened)
