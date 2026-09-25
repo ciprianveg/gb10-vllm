@@ -90,21 +90,9 @@ docker run --rm --entrypoint bash "$TAG" -c '
     check "grammar-stream fence"    "fix-grammar-stream-fence"
     check "draft-noeplb"            "fix-dspark-draft-noeplb"
     check "adaptive-min-depth"      "fix-adaptive-min-depth"
-    check "kv-dedup"                "fix-kv-dedup-retained-endpoints"
-    check "mamba-align-state-free"  "_two_steps_ago_block_idx"
-    check "moe-skip-padding"        "fix-moe-skip-padding-producer"
-    check "long-prefill-singleton"  "fix-long-prefill-singleton"
-    check "sm121-cublas-oob"        "fix-sm121-cublas-oob"
-    check "mla-bmm-disjoint"        "_bmm_with_disjoint_batches"
-    check "kda-first-chunk"         "fix-k3-kda-first-chunk"
-    check "gb10-kv-sizing"          "fix-gb10-kv-sizing"
-    check "gb10-nvml-fallback"      "fix-gb10-nvml-fallback"
-    check "apc-drain-hardening"     "harden-apc-drain"
-    check "no-mixed-steps"          "fix-no-mixed-steps"
     check "endpoint-cache"          "fix-k3-request-endpoint-cache"
-    check "moe-serial-smalln"       "fix-k3-moe-serial-smalln"
-    check "moe-gate-bf16-epilogue"  "fix-k3-moe-gate-bf16-epilogue"
-    ! grep -rq "fix-kv-dedup-retained-endpoints" $V/vllm/v1/core/kv_cache_manager.py && echo "revert-apc-leak OK (no leak markers)" || { echo "revert-apc-leak: MISSING (leak markers present)"; exit 1; }
+    check "dflash-unaligned-restore" "fix-k3-dflash-unaligned-endpoint-restore"
+    check "mamba-align-state-free"  "_two_steps_ago_block_idx"
 ' || { echo "VERIFICATION FAILED"; exit 1; }
 
 if [[ "$PUSH" == true ]]; then

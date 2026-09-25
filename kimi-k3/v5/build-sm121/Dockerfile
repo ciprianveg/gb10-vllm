@@ -35,39 +35,22 @@ RUN bash /tmp/build-mods/perf-pr55356-54896-mla-cache-kernels/run.sh apply && \
     cd /opt/kimi-k3/vllm && python3 setup.py build_ext --inplace
 
 # Stage 3 — perf layers in commit order.
-# FIX2 batch (2026-09-22, image 0887adc360e9): the last 7 mods must run AFTER
-# fix-kv-dedup-retained-endpoints + fix-mamba-align-state-free (harden-apc-drain
-# anchors on their output text). fix-gb10-kv-sizing and fix-gb10-nvml-fallback
-# both touch platforms/cuda.py — verified order-independent.
-# FIX4 (2026-09-23, image 6867b9d40e19): append fix-no-mixed-steps last
-# (scheduler-only; order-independent vs the FIX2 batch and vs
-# fix-prefill-decode-share, which stays runtime-only — verified both ways).
-# FIX5 (2026-09-24, image d3f4c14ca83a): append fix-k3-request-endpoint-cache
-# (lab#732 port, 12 files; env-gated, inert by default — verified both ways).
-# FIX6 (2026-09-24, image cba6b4e37b0a): append fix-k3-moe-serial-smalln
-# (model.py MoE gate/down_proj only; order-independent — verified).
-# FIX7 (2026-09-24, image 6c0f809b9cdb): append fix-k3-moe-gate-bf16-epilogue
-# (model.py gate forward_local only; disjoint from the serial hunk which
-# touches the overlap branch 700 lines below — verified).
-# REVERT (no image tag — runtime-equivalent removal): append
-# fix-k3-revert-apc-leak LAST. It restores pristine per-occurrence CoW
-# retention by reversing fix-kv-dedup-retained-endpoints + removing
-# harden-apc-drain's kv_cache_manager sites (which anchor on deduped text,
-# hence last). harden's block_pool tripwire + single_type guard stay (other
-# files, untouched). Safe on trees that never had the leak (detects pristine
-# state, skips).
+# 0920R1 (2026-09-25): the FIX1-FIX7 bake chain (kv-dedup, mamba-align via
+# FIX1; backport batch + harden via FIX2; no-mix FIX4; endpoint FIX5;
+# serial FIX6; epilogue FIX7; revert) was ABANDONED — it cost ~30% base
+# decode speed, and its kv-dedup member was a CoW-ref leak. Canonical image
+# is again the 09-20 composition (this file as of commit 65dda8f) PLUS the
+# three mods below, baked 2026-09-25 (GHCR sha256:336ae7d1..., stamp
+# V5-PRD-0920R1-BAKE-STAMP). Base keeps PRISTINE per-occurrence CoW
+# retention (no kv-dedup, no revert needed).
 RUN set -eux; \
     for m in fix-flashinfer-autotune-import fix-k3-marlin-nopad \
              fix-mxfp4-triton-sm121 fix-k3-nan-gumbel fix-dspark-adaptive-nst \
              fix-multistream-record-stream fix-grammar-stream-fence \
              fix-dspark-draft-noeplb fix-adaptive-min-depth \
-             fix-kv-dedup-retained-endpoints fix-mamba-align-state-free \
-             fix-moe-skip-padding-producer fix-long-prefill-singleton \
-             fix-sm121-cublas-oob fix-k3-kda-first-chunk \
-             fix-gb10-kv-sizing fix-gb10-nvml-fallback \
-             harden-apc-drain fix-no-mixed-steps \
-             fix-k3-request-endpoint-cache fix-k3-moe-serial-smalln \
-             fix-k3-moe-gate-bf16-epilogue fix-k3-revert-apc-leak; do \
+             fix-k3-request-endpoint-cache \
+             fix-k3-dflash-unaligned-endpoint-restore \
+             fix-mamba-align-state-free; do \
       echo "=== baking mod: $m ==="; \
       bash /tmp/build-mods/$m/run.sh; \
     done; \

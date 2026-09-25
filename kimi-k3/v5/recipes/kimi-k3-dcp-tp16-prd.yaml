@@ -18,10 +18,7 @@ defaults:
 
 mods:
   - mods/drop-caches
-  # fix-k3-revert-apc-leak: restores pristine per-occurrence CoW retention
-  # (reverses the leaky kv-dedup + harden-kv sites). Safe everywhere:
-  # applies where the leak is baked, skips pristine trees.
-  - mods/fix-k3-revert-apc-leak
+  # 0920R1 base has pristine CoW retention — no revert mod needed.
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
@@ -63,7 +60,10 @@ env:
   NCCL_MIN_NCHANNELS: "3"
   VLLM_K3_MIN_SPLITS: "0"
   VLLM_ENABLE_ROCE_DCP: "1"
-  VLLM_K3_FP8_DRAFT: "0"
+  # Endpoint cache (baked, env-gated): token-continuous session restores.
+  VLLM_K3_REQUEST_ENDPOINT_CACHE: "1"
+  # FP8 draft: validated posture on 0920R1 (bf16 doubles draft cost).
+  VLLM_K3_FP8_DRAFT: "1"
   VLLM_DSPARK_DYNAMIC_MIN_DEPTH: "4"
   VLLM_DSPARK_DYNAMIC_DRAFT_DEPTH: "0"
   VLLM_ROCE_ALLREDUCE_MAX_SIZE: "1M"
