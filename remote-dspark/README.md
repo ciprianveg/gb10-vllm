@@ -9,19 +9,12 @@ The memory you free on every GB10 node can go to a **bigger KV cache** or a
 **slightly better quant quality**. Worked example: GLM-5.3 Int4-Int8Mix
 (TP4, 4× GB10) with its DSpark draft on an RTX 3090.
 
-## What it frees (GLM-5.3 int4int8 @ TP4, per GB10 node)
+## What it frees (GLM-5.3 int4int8 @ TP4, 4× GB10)
 
-| | Draft on-cluster | Draft on external GPU |
-|---|---|---|
-| Draft weights | 2.51 GiB | 0 |
-| Draft KV + spec buffers | ~1.5 GiB | ~1.2 GiB (staging only) |
-| **Total spec footprint** | **~4.0 GiB** | **~1.2 GiB** |
-
-Net **~2.8 GiB/node freed** — with MLA's TP-replicated KV
-(~54 KB/token/node), everything freed goes straight into extra
-context capacity. At tight memory budgets the on-cluster draft can be
-what stops the model from booting at all; the remote draft boots where
-the local one cannot.
+Net **~2.8 GiB/node freed — total > 10 GB** moved off the cluster onto the
+external GPU. The freed memory goes into extra context capacity. The
+remote draft can also be used to speed up tight memory budgets where the
+on-cluster draft can not fit.
 
 ## Lanes
 
