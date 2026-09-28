@@ -1552,4 +1552,4 @@ RemoteK3DSparkSpeculator = RemoteDSparkSpeculator
 
 # V4PLUS-V6-REMOTE-DSPARK
 # patch_remote_dspark_rdma_transport: applied
-# glm-remote-dspark-rdma (marker — do not remove)
+# remote-dspark-rdma (marker — do not remove)

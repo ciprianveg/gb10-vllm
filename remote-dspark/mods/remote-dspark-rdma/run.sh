@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# glm-remote-dspark-rdma — remote DSpark draft proxy for vLLM 0.29 trees,
+# remote-dspark-rdma — remote DSpark draft proxy for vLLM 0.29 trees,
 # RAW-IBVERBS RDMA lane (protocol v3). Model-generic port of the K3 remote
 # speculator (myshytf/vllm agent/k3-remote-dspark + RDMA hardening).
 #
-# Superset of glm-remote-dspark-tcp: installs the v3 proxy
+# Superset of remote-dspark-tcp: installs the v3 proxy
 # (RemoteDSparkSpeculator: tensors ride a raw ibverbs RC RoCEv2 side-channel
 # via libk3rdma; HTTP is bootstrap/health only; peer-info exchange over a
 # dedicated StatelessProcessGroup TCPStore rendezvous), builds libk3rdma.so
@@ -17,11 +17,11 @@
 # Container needs /dev/infiniband/* devices mounted (recipe docker args).
 #
 # All-or-nothing: proxy must install + py_compile; hook anchor must match
-# exactly once; transport must build and deploy. Marker: glm-remote-dspark-rdma
+# exactly once; transport must build and deploy. Marker: remote-dspark-rdma
 
 set -euo pipefail
 
-MOD="glm-remote-dspark-rdma"
+MOD="remote-dspark-rdma"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK_REL="vllm/v1/worker/gpu/spec_decode/__init__.py"
 FIND_ROOTS="${MOD_FIND_ROOTS:-/opt/vllm /opt/venv /usr/local/lib}"
@@ -69,7 +69,7 @@ echo "[$MOD] INSTALLED + py_compile OK: transport + $DSPARK_DIR/remote_speculato
 # --- 3. hook into init_speculator (dspark branch, env-gated; idempotent) ---
 PATCHED=0
 for FILE in $(find $FIND_ROOTS -path "*$HOOK_REL" 2>/dev/null | grep -v __pycache__ | sort -u || true); do
-  if grep -q "glm-remote-dspark-tcp" "$FILE" 2>/dev/null || grep -q "$MOD" "$FILE" 2>/dev/null; then
+  if grep -q "remote-dspark-tcp" "$FILE" 2>/dev/null || grep -q "$MOD" "$FILE" 2>/dev/null; then
     echo "[$MOD] hook already applied in $FILE"
     PATCHED=1
     continue
@@ -105,7 +105,7 @@ from vllm.config import VllmConfig""",
             "VLLM_K3_DRAFT_REMOTE_ADDRESS"
         )
         if remote_address:
-            # glm-remote-dspark-rdma: remote draft proxy (RDMA lane).
+            # remote-dspark-rdma: remote draft proxy (RDMA lane).
             # Unset VLLM_*_REMOTE_ADDRESS restores the stock local draft.
             from vllm.v1.worker.gpu.spec_decode.dspark.remote_speculator import (
                 RemoteDSparkSpeculator,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# glm-remote-dspark-tcp — remote DSpark draft proxy for the botlabs21
+# remote-dspark-tcp — remote DSpark draft proxy for the botlabs21
 # (vLLM 0.29) tree, TCP/ZMQ lane. Model-generic port of the K3 remote
 # speculator (myshytf/vllm agent/k3-remote-dspark, protocol v2).
 #
@@ -22,11 +22,11 @@
 # All-or-nothing: new file must install byte-exact; hook anchor must match
 # exactly once (exit 3 = anchors missing, skip; exit 4 = ambiguous/compile
 # failure, die; exit 5 = py_compile failure).
-# Marker: glm-remote-dspark-tcp
+# Marker: remote-dspark-tcp
 
 set -euo pipefail
 
-MOD="glm-remote-dspark-tcp"
+MOD="remote-dspark-tcp"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOK_REL="vllm/v1/worker/gpu/spec_decode/__init__.py"
 FIND_ROOTS="${MOD_FIND_ROOTS:-/opt/vllm /opt/venv /usr/local/lib}"
@@ -84,7 +84,7 @@ from vllm.config import VllmConfig""",
             "VLLM_K3_DRAFT_REMOTE_ADDRESS"
         )
         if remote_address:
-            # glm-remote-dspark-tcp: remote draft proxy (TCP/ZMQ lane).
+            # remote-dspark-tcp: remote draft proxy (TCP/ZMQ lane).
             # Unset VLLM_*_REMOTE_ADDRESS restores the stock local draft.
             from vllm.v1.worker.gpu.spec_decode.dspark.remote_speculator import (
                 RemoteDSparkSpeculator,

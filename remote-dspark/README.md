@@ -49,8 +49,8 @@ Both lanes use the same op-codes; pick per recipe.
 ## Layout
 
 ```
-mods/glm-remote-dspark-tcp/    cluster-side mod, TCP/ZMQ lane
-mods/glm-remote-dspark-rdma/   cluster-side mod, RDMA lane (compiles libk3rdma.so in-container)
+mods/remote-dspark-tcp/    cluster-side mod, TCP/ZMQ lane
+mods/remote-dspark-rdma/   cluster-side mod, RDMA lane (compiles libk3rdma.so in-container)
 draft-server/                  draft server for the external GPU (TCP + RDMA entrypoints)
 docker/Dockerfile.draft-sm86   draft-server image for RTX 3080/3090
 recipes/                       working YAML examples (TCP + RDMA)
@@ -117,7 +117,7 @@ The parameters that connect the cluster to the draft server:
 
 ```yaml
 mods:
-  - mods/glm-remote-dspark-tcp          # or mods/glm-remote-dspark-rdma
+  - mods/remote-dspark-tcp          # or mods/remote-dspark-rdma
 env:
   VLLM_DRAFT_REMOTE_ADDRESS: "tcp://<draft-host-ip>:8092"
   VLLM_K3_DRAFT_TCPSTORE_PORT: "51230"  # RDMA lane only

@@ -1,7 +1,7 @@
 # GLM-5.3 Int4-Int8Mix + MoonViT vision, TP4 on 4× GB10 — REMOTE DSpark draft (TCP lane)
 #
 # The speculative draft model does NOT run on the GB10s: it runs on an
-# external GPU box (here an RTX 3090) via mods/glm-remote-dspark-tcp.
+# external GPU box (here an RTX 3090) via mods/remote-dspark-tcp.
 # The GB10 nodes keep only a small staging buffer for the draft proposals —
 # the draft weights and draft KV move off-cluster entirely.
 #
@@ -22,7 +22,7 @@ container: ghcr.io/ciprianveg/gb10-vllm:vllm0.29-sm121   # any vLLM 0.29-based G
 model: /root/models/models118/glm53-int4int8-vision
 
 mods:
-  - mods/glm-remote-dspark-tcp        # the only mod required for remote drafting
+  - mods/remote-dspark-tcp        # the only mod required for remote drafting
   # add any site-specific GB10 fixes your stack needs here
 
 env:

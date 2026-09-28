@@ -828,4 +828,4 @@ class RemoteDSparkSpeculator(BaseSpeculator):
 
 RemoteK3DSparkSpeculator = RemoteDSparkSpeculator  # backwards-compat alias.
 
-# glm-remote-dspark-tcp (marker — do not remove)
+# remote-dspark-tcp (marker — do not remove)
