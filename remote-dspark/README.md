@@ -131,6 +131,12 @@ and make sure the draft server is fully up before the cluster boots.
 
 ## Notes
 
+- **Model-agnostic.** The mods and draft server are not tied to any model
+  family — the `k3_dspark_*` file names are historical (the server
+  originated for a Kimi K3 draft). Validated with both **GLM-5.3**
+  (int4int8/NVFP4 targets + DSpark draft — this repo's example) and
+  **Kimi K3** (REAP-320 target + RedHatAI K3 dspark draft). Any
+  dspark-family speculator checkpoint the loader resolves works.
 - The **vision tower/projector can also be run remote** the same way
   (encode once per image is latency-tolerant) if you need a little more
   memory freed; not shipped here, but the pattern is the same.
