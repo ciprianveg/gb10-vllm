@@ -146,3 +146,17 @@ and make sure the draft server is fully up before the cluster boots.
 - The draft server needs the target's shared tensors (`embed_tokens` +
   `lm_head`, BF16) once per target model — the draft conditions on the
   target's embedding and predicts against the target's head.
+
+## Credits
+
+- **EUGR vLLM** — the remote-dspark work: model-generic speculator proxy
+  and shims, draft server, RDMA transport integration, recipes, packaging.
+- **Remote TCP/IP lane** — ported from
+  [myshytf/vllm, branch `agent/k3-remote-dspark`](https://github.com/myshytf/vllm/tree/agent/k3-remote-dspark)
+  (see also [local-inference-lab/vllm#465](https://github.com/local-inference-lab/vllm/pull/465)),
+  the ZMQ remote-speculator origin.
+- **RDMA verbs** — the raw-ibverbs transport's QP state machine and GID
+  selection mirror the native reference in
+  [local-inference-lab/vllm](https://github.com/local-inference-lab/vllm)
+  (`release/ds41-optimized` line, `native/src/ds41rt_native.cc`); the wire
+  protocol, server integration, and cluster-side transport are our own.
