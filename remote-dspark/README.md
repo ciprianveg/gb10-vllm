@@ -1,6 +1,6 @@
 # remote-dspark — run the speculative draft model on an external GPU
 
-EUGR-created vLLM mods that **free memory on a GB10 cluster** by moving the
+vLLM mods in the eugr's vllm compatible format that **free memory on a GB10 cluster** by moving the
 speculative decoding draft model off the cluster and onto an external
 consumer GPU — an RTX 3060/3080/3090 class box with 10–24 GB VRAM sitting
 on the same network.
