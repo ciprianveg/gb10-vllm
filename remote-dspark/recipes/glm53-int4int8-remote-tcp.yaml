@@ -1,14 +1,6 @@
-# GLM-5.3 Int4-Int8Mix + MoonViT vision, TP4 on 4× GB10 — REMOTE DSpark draft (TCP lane)
-#
-# The speculative draft model does NOT run on the GB10s: it runs on an
-# external GPU box (here an RTX 3090) via mods/remote-dspark-tcp.
-# The GB10 nodes keep only a small staging buffer for the draft proposals —
-# the draft weights and draft KV move off-cluster entirely.
-#
-# Cluster image: any vLLM 0.29-based GB10 (sm_121) image works — the mod
-# only installs a speculator proxy + a hook; everything is engaged via env.
-# Draft image (3090 side): see ../docker/Dockerfile.draft-sm86 (vLLM 0.29
-# based, x86_64/sm86). Both can be pushed to GHCR.
+# GLM-5.3 Int4-Int8Mix + MoonViT vision, TP4 on 4× GB10 — REMOTE DSpark draft (TCP lane).
+# The draft model runs on an external GPU (RTX 3060–3090) via mods/remote-dspark-tcp.
+# Cluster image: any vLLM 0.29-based GB10 (sm_121) image. Draft image: ../docker/Dockerfile.draft-sm86.
 
 recipe_version: "1"
 name: glm53-int4int8-remote-tcp
@@ -17,13 +9,12 @@ raw_entrypoint: true
 shared_weights_nfs: true
 cluster_only: true
 
-container: ghcr.io/ciprianveg/gb10-vllm:vllm0.29-sm121   # any vLLM 0.29-based GB10 image
+container: ghcr.io/ciprianveg/gb10-vllm/remote-dspark:vllm0.29-sm121
 
 model: /root/models/models118/glm53-int4int8-vision
 
 mods:
-  - mods/remote-dspark-tcp        # the only mod required for remote drafting
-  # add any site-specific GB10 fixes your stack needs here
+  - mods/remote-dspark-tcp
 
 env:
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
@@ -33,7 +24,6 @@ env:
   VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
 
   VLLM_USE_V2_MODEL_RUNNER: "1"
-  # --- remote draft (TCP lane) — the two lines that matter ---
   VLLM_DRAFT_REMOTE_ADDRESS: "tcp://<draft-host-ip>:8092"
 
   TORCH_CUDA_ARCH_LIST: "12.1a"
@@ -79,16 +69,12 @@ command: |
     --distributed-executor-backend ray \
     --enforce-eager \
     --generation-config vllm \
-    --api-key <your-api-key> --seed 42 \
+    --seed 42 \
     --speculative-config '{{"method":"dspark","model":"/root/models/models11/GLM-5.3-dspark","num_speculative_tokens":4,"draft_tensor_parallel_size":1,"kv_cache_dtype":"auto","attention_backend":"TRITON_ATTN","draft_sample_method":"greedy","rejection_sample_method":"block"}}' \
     --limit-mm-per-prompt '{{"image":3,"video":0}}' \
     --mm-processor-cache-gb 0 \
     --mm-encoder-tp-mode weights
-# Notes:
-#   - speculative-config "model" points at the draft checkpoint as usual; with
-#     VLLM_DRAFT_REMOTE_ADDRESS set, the mod's proxy sends every proposal to
-#     the external draft server instead of loading it on-cluster. Unset the
-#     env and the stock local draft runs — the lane is fully opt-in.
-#   - num_speculative_tokens must equal the draft server's --num-speculative-tokens.
-#   - draft host needs: the draft checkpoint + the target's shared tensors
-#     (embed_tokens + lm_head, extracted once from the target checkpoint).
+# With VLLM_DRAFT_REMOTE_ADDRESS set, proposals go to the external draft server;
+# unset it and the stock local draft runs. num_speculative_tokens must equal the
+# draft server's. The draft host needs the draft checkpoint plus the target's
+# shared tensors (embed_tokens + lm_head, extracted once from the target).

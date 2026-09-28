@@ -68,7 +68,7 @@ docker run -d --name draft-server --network host --ipc=host \
   -v /path/to/target-shared:/models/target-shared \
   -v $PWD/draft-server/k3_dspark_standalone.py:/workspace/vllm/vllm/entrypoints/k3_dspark_standalone.py:ro \
   -v $PWD/draft-server/k3_dspark_rpc_zmq.py:/workspace/vllm/vllm/entrypoints/k3_dspark_rpc.py:ro \
-  <draft-image> \
+  ghcr.io/ciprianveg/gb10-vllm/remote-dspark:draft-sm86 \
   --draft-model /models/draft --target-weights /models/target-shared \
   --target-config /models/target-shared \
   --host 0.0.0.0 --port 8091 \
@@ -91,7 +91,7 @@ docker run -d --name draft-server --network host --ipc=host \
   -e K3RDMA_SO_PATH=/workspace/vllm/vllm/libk3rdma.so \
   -e VLLM_K3_DRAFT_RDMA_HCA=mlx5_0 -e VLLM_K3_DRAFT_RDMA_GID_INDEX=5 \
   -e VLLM_K3_DRAFT_RDMA_PORT=1 -e VLLM_K3_DRAFT_TCPSTORE_PORT=51230 \
-  <draft-image>  ... (same args as TCP; build libk3rdma.so for x86 first)
+  ghcr.io/ciprianveg/gb10-vllm/remote-dspark:draft-sm86  ... (same args as TCP; build libk3rdma.so for x86 first)
 ```
 
 ### 3. Smaller GPUs (3080 / 3070 / 3060) — draft in fp8
