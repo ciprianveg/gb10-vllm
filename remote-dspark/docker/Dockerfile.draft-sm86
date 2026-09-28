@@ -1,0 +1,73 @@
+# V6-DRAFT — x86_64 / sm86 (RTX 3080 / 3090) draft-server image for remote DSpark.
+# Source: b4f fork tree with mods/v6-remote-dspark pre-applied (9 files).
+# Build (on T1): docker build -t v6-draft:x86-sm86 -f Dockerfile.v6-draft .
+FROM nvidia/cuda:13.2.0-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+# Ubuntu 24.04 system Python is PEP 668 externally-managed; containerized
+# global pip installs are intentional here.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3-pip python3.12-venv \
+        git ninja-build cmake build-essential libffi-dev curl \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/local/bin/pip
+
+# Rust toolchain (fork setup.py imports setuptools_rust unconditionally;
+# mirrors the repo Dockerfile rustup approach).
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
+ENV PATH=/opt/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+      sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path && \
+    rustc --version && cargo --version
+
+RUN pip install --ignore-installed wheel packaging "setuptools>=77.0.3,<81.0.0" \
+    setuptools-scm setuptools-rust jinja2
+
+# Torch pin per fork pyproject (==2.13.0). Default PyPI CUDA variant (cu13x)
+# is driver-580 compatible and carries sm86 kernels.
+RUN pip install torch==2.13.0
+
+# Patched fork source (v6-remote-dspark mod applied before this build).
+COPY vllm-src /workspace/vllm
+WORKDIR /workspace/vllm
+
+ENV TORCH_CUDA_ARCH_LIST="8.6" \
+    VLLM_TARGET_DEVICE=cuda \
+    MAX_JOBS=64
+# Source tar ships without .git; keep the exact b4f version so the draft
+# server reports the same version as the cluster side. The UNSUFFIXED
+# pretend-version is the one read on the direct get_version() path.
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.26.1rc0+kimi.k3.aligned.vllme755f87.b12x2d466e
+RUN pip install -e . --no-build-isolation && \
+    pip install pyzmq psutil
+
+RUN echo "V6-DRAFT-X86-SM86-BUILD-STAMP $(date -u +%Y%m%d%H%M%S)" > /V6-DRAFT-BUILD-STAMP
+
+# Draft server entrypoint; args supplied at runtime:
+#   --draft <dir> --target-weights <dir> --proposal-bind tcp://0.0.0.0:5557 ...
+ENTRYPOINT ["python", "-m", "vllm.entrypoints.k3_dspark_standalone"]
+
+# --- Productionization: RDMA verbs + pinned NCCL 2.31.2 ---------------------
+# libibverbs/ibverbs-providers provide the user-space RDMA verbs stack
+# (mlx5_0 on T1's ConnectX-7) for NCCL kernel-bypass over the RoCE v2 fabric.
+# libnl-3-200 / libnl-route-3-200 are pulled in by ibverbs-providers but pinned
+# explicitly to avoid a mid-build apt resolution surprise.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libibverbs1 \
+        ibverbs-providers \
+        libnl-3-200 \
+        libnl-route-3-200 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Pin NCCL 2.31.2 (matching the cluster's v6-prd NCCL 2.31.2) from the NVIDIA
+# CUDA repo already configured in the cuda:13.2.0 base image. The draft server
+# is a single-purpose image, so LD_PRELOAD forces exactly this lib (proven
+# working via the smoke test).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnccl2=2.31.2-1+cuda13.4 && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libnccl.so.2.31.2

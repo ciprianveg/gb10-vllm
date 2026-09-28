@@ -1,0 +1,94 @@
+# GLM-5.3 Int4-Int8Mix + MoonViT vision, TP4 on 4× GB10 — REMOTE DSpark draft (TCP lane)
+#
+# The speculative draft model does NOT run on the GB10s: it runs on an
+# external GPU box (here an RTX 3090) via mods/glm-remote-dspark-tcp.
+# The GB10 nodes keep only a small staging buffer for the draft proposals —
+# the draft weights and draft KV move off-cluster entirely.
+#
+# Cluster image: any vLLM 0.29-based GB10 (sm_121) image works — the mod
+# only installs a speculator proxy + a hook; everything is engaged via env.
+# Draft image (3090 side): see ../docker/Dockerfile.draft-sm86 (vLLM 0.29
+# based, x86_64/sm86). Both can be pushed to GHCR.
+
+recipe_version: "1"
+name: glm53-int4int8-remote-tcp
+description: GLM-5.3 Int4-Int8Mix + vision, TP4 on 4× GB10, vLLM 0.29 image, marlin MoE, fp8 KV, REMOTE DSpark draft on external RTX 3090 (TCP/ZMQ lane)
+raw_entrypoint: true
+shared_weights_nfs: true
+cluster_only: true
+
+container: ghcr.io/ciprianveg/gb10-vllm:vllm0.29-sm121   # any vLLM 0.29-based GB10 image
+
+model: /root/models/models118/glm53-int4int8-vision
+
+mods:
+  - mods/glm-remote-dspark-tcp        # the only mod required for remote drafting
+  # add any site-specific GB10 fixes your stack needs here
+
+env:
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "1800"
+  HF_HOME: /cache/huggingface
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  # --- remote draft (TCP lane) — the two lines that matter ---
+  VLLM_DRAFT_REMOTE_ADDRESS: "tcp://<draft-host-ip>:8092"
+
+  TORCH_CUDA_ARCH_LIST: "12.1a"
+  NCCL_NET: IB
+  NCCL_IB_DISABLE: "0"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_CROSS_NIC: "1"
+  NCCL_CUMEM_ENABLE: "0"
+  NCCL_IGNORE_CPU_AFFINITY: "1"
+  NCCL_DEBUG: WARN
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  OMP_NUM_THREADS: 8
+  VLLM_USE_RAY_V2_EXECUTOR_BACKEND: "1"
+  VLLM_USE_RAY_COMPILED_DAG_OVERLAP_COMM: "1"
+  RAY_memory_monitor_refresh_ms: "0"
+  VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "0"
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_BUFFSIZE: "16777216"
+  TORCH_EXTENSIONS_DIR: /cache/huggingface/torch_extensions
+  TRITON_CACHE_DIR: /cache/huggingface/triton-cache
+  XDG_CACHE_HOME: /cache/huggingface
+
+command: |
+  vllm serve /root/models/models118/glm53-int4int8-vision \
+    --served-model-name GLM-5.3-Int4-Int8 \
+    --host 0.0.0.0 --port 5001 \
+    --trust-remote-code \
+    --enable-chunked-prefill \
+    --enable-prefix-caching \
+    --async-scheduling \
+    --tensor-parallel-size 4 \
+    --pipeline-parallel-size 1 \
+    --decode-context-parallel-size 1 \
+    --dcp-kv-cache-interleave-size 1 \
+    --attention-backend FLASHINFER_MLA_SPARSE_SM120 \
+    --moe-backend marlin \
+    --max-model-len 16384 \
+    --max-num-seqs 4 \
+    --max-num-batched-tokens 4096 \
+    --gpu-memory-utilization 0.85 \
+    --kv-cache-dtype fp8_e4m3 \
+    --distributed-executor-backend ray \
+    --enforce-eager \
+    --generation-config vllm \
+    --api-key <your-api-key> --seed 42 \
+    --speculative-config '{{"method":"dspark","model":"/root/models/models11/GLM-5.3-dspark","num_speculative_tokens":4,"draft_tensor_parallel_size":1,"kv_cache_dtype":"auto","attention_backend":"TRITON_ATTN","draft_sample_method":"greedy","rejection_sample_method":"block"}}' \
+    --limit-mm-per-prompt '{{"image":3,"video":0}}' \
+    --mm-processor-cache-gb 0 \
+    --mm-encoder-tp-mode weights
+# Notes:
+#   - speculative-config "model" points at the draft checkpoint as usual; with
+#     VLLM_DRAFT_REMOTE_ADDRESS set, the mod's proxy sends every proposal to
+#     the external draft server instead of loading it on-cluster. Unset the
+#     env and the stock local draft runs — the lane is fully opt-in.
+#   - num_speculative_tokens must equal the draft server's --num-speculative-tokens.
+#   - draft host needs: the draft checkpoint + the target's shared tensors
+#     (embed_tokens + lm_head, extracted once from the target checkpoint).
