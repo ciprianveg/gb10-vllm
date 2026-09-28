@@ -157,6 +157,7 @@ and make sure the draft server is fully up before the cluster boots.
   the ZMQ remote-speculator origin.
 - **RDMA verbs** — the raw-ibverbs transport's QP state machine and GID
   selection mirror the native reference in
-  [local-inference-lab/vllm](https://github.com/local-inference-lab/vllm)
-  (`release/ds41-optimized` line, `native/src/ds41rt_native.cc`); the wire
+  [tpurtell/ds41rt](https://github.com/tpurtell/ds41rt)
+  (`native/src/ds41rt_native.cc`, as carried in the
+  `local-inference-lab/vllm` `release/ds41-optimized` line); the wire
   protocol, server integration, and cluster-side transport are our own.
