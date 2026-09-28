@@ -17,11 +17,11 @@ The memory you free on every GB10 node can go to a **bigger KV cache** or a
 | Draft KV + spec buffers | ~1.5 GiB | ~1.2 GiB (staging only) |
 | **Total spec footprint** | **~4.0 GiB** | **~1.2 GiB** |
 
-Net **~2.8 GiB/node freed** — which, with MLA's TP-replicated KV
-(~54 KB/token/node), is a **~1.5× larger context pool** (65k → 100k KV
-tokens at the same utilization in the example recipe). At tight
-memory budgets the on-cluster draft can be what stops the model from
-booting at all; the remote draft boots where the local one cannot.
+Net **~2.8 GiB/node freed** — with MLA's TP-replicated KV
+(~54 KB/token/node), everything freed goes straight into extra
+context capacity. At tight memory budgets the on-cluster draft can be
+what stops the model from booting at all; the remote draft boots where
+the local one cannot.
 
 ## Lanes
 
@@ -94,7 +94,21 @@ docker run -d --name draft-server --network host --ipc=host \
   <draft-image>  ... (same args as TCP; build libk3rdma.so for x86 first)
 ```
 
-### 3. GB10 cluster — connect to it
+### 3. Smaller GPUs (3080 / 3070 / 3060) — draft in fp8
+
+The largest tensors on the draft box are the target's shared embed +
+lm_head facade (BF16). Add one env to the `docker run` (either lane) to
+store them rowwise-fp8 (half the VRAM, dequantized on use):
+
+```bash
+  -e VLLM_K3_DRAFT_FACADE_FP8=1 \
+```
+
+Combined with a modest `--draft-kv-cache-gib` (e.g. 0.5), the whole
+draft server fits comfortably in 10–12 GB — a 3060 12GB or 3080 10GB
+works the same as a 3090.
+
+### 4. GB10 cluster — connect to it
 
 Take a recipe from [recipes/](recipes/) (TCP:
 [glm53-int4int8-remote-tcp.yaml](recipes/glm53-int4int8-remote-tcp.yaml),
