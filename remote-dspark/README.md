@@ -149,8 +149,8 @@ and make sure the draft server is fully up before the cluster boots.
 
 ## Credits
 
-- **EUGR vLLM** — the remote-dspark work: model-generic speculator proxy
-  and shims, draft server, RDMA transport integration, recipes, packaging.
+- **EUGR vLLM** — [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker)
+  — build harness + cluster launcher.
 - **Remote TCP/IP lane** — ported from
   [myshytf/vllm, branch `agent/k3-remote-dspark`](https://github.com/myshytf/vllm/tree/agent/k3-remote-dspark)
   (see also [local-inference-lab/vllm#465](https://github.com/local-inference-lab/vllm/pull/465)),
