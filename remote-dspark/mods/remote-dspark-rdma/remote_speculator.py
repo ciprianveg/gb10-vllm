@@ -408,6 +408,13 @@ class RemoteDSparkSpeculator(BaseSpeculator):
             self._rdma_ready = False
             self._rdma_retry_at = 0.0
             self._rdma_retry_interval_s = 30.0
+            # Generation bump happens ONCE per process (first establish).
+            # Bumping on every retry livelocks against the server: each bump
+            # makes an idle server reset its rendezvous and close the QP the
+            # client just handshaked with, so retries can never converge.
+            # Retries re-publish the fresh QP info WITHOUT bumping; the
+            # server only resets on a genuine (new-process) generation change.
+            self._gen_bumped = False
 
         logger.info(
             "Remote K3 %s proxy initialized: address=%s, TP rank=%d, K=%d",
@@ -531,11 +538,14 @@ class RemoteDSparkSpeculator(BaseSpeculator):
                 world_size=2,
                 is_master=False,
             )
-            # Bump the client-generation signal BEFORE the QP handshake: the T1
-            # server polls this key while idle and resets its rendezvous when it
-            # changes, so a reconnected client never leaves the server polling a
-            # dead queue pair.
-            _store_set(group, _CLIENT_GEN_KEY, str(time.time_ns()))
+            # Bump the client-generation signal BEFORE the QP handshake, but
+            # ONLY on the first establish of this process (see _gen_bumped):
+            # the T1 server polls this key while idle and resets its
+            # rendezvous when it changes. Retries re-publish the fresh QP
+            # info below WITHOUT bumping.
+            if not self._gen_bumped:
+                _store_set(group, _CLIENT_GEN_KEY, str(time.time_ns()))
+                self._gen_bumped = True
             self._rdma = K3RdmaClient(
                 group,
                 hca=_rdma_hca(),
