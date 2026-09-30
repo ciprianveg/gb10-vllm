@@ -229,7 +229,15 @@ class _K3RdmaEndpoint:
     def _recv_bytes(self, timeout_ms: int) -> bytes:
         if self.rdma is None or self._recv_mr is None:
             raise RuntimeError("K3 RDMA endpoint is not started")
-        self.rdma.post_recv(self._recv_mr, self.recv_max)
+        if self._recv_posted:
+            # A recv WR is already posted (pre-posted credit from the
+            # previous iteration): consume it instead of posting anew.
+            # This keeps a recv ALWAYS posted while the endpoint is alive,
+            # so inbound messages never hit an RNR race. Strict ping-pong
+            # means one credit suffices.
+            self._recv_posted = False
+        else:
+            self.rdma.post_recv(self._recv_mr, self.recv_max)
         byte_len = self.rdma.wait_recv(timeout_ms)
         if byte_len > self.recv_max:
             raise RuntimeError(
@@ -246,6 +254,19 @@ class _K3RdmaEndpoint:
 class K3RdmaServer(_K3RdmaEndpoint):
     """T1-side (rank 1) RDMA request/response endpoint."""
 
+    def _prepost_recv_credit(self) -> None:
+        """Post one recv WR ahead of the next request.
+
+        Called at startup and before doing any other work in
+        ``send_response`` so a recv is ALWAYS posted while this endpoint
+        is alive (see ``_recv_bytes``). Strict ping-pong needs one credit.
+        """
+        if self.rdma is None or self._recv_mr is None:
+            raise RuntimeError("K3 RDMA endpoint is not started")
+        if not self._recv_posted:
+            self.rdma.post_recv(self._recv_mr, self.recv_max)
+            self._recv_posted = True
+
     def start(self) -> None:
         """Open, publish this side's info, connect to the client, register."""
         try:
@@ -253,6 +274,7 @@ class K3RdmaServer(_K3RdmaEndpoint):
         except Exception:
             self.close()
             raise
+        self._prepost_recv_credit()
 
     def recv_request(self, timeout_ms: int = 30000) -> bytes:
         """Block for one request message and return its bytes."""
@@ -301,6 +323,10 @@ class K3RdmaServer(_K3RdmaEndpoint):
         """Stage and send one response message."""
         logger.info("K3 RDMA server send_response %d bytes", len(data))
         try:
+            # Re-arm the recv credit BEFORE sending: the client's next
+            # request is triggered by this response, so posting first
+            # closes the RNR window by construction.
+            self._prepost_recv_credit()
             self._send_bytes(data)
         except Exception as exc:
             logger.warning("K3 RDMA server send_response failed", exc_info=True)

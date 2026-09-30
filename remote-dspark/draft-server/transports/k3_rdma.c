@@ -568,7 +568,7 @@ int k3rdma_wait_send(int timeout_ms) {
       k3_set_error("k3rdma_wait_send timed out after %d ms", timeout_ms);
       return -1;
     }
-    struct timespec nap = {0, 100000}; /* 100 us */
+    struct timespec nap = {0, 20000}; /* 20 us: keeps hot-path latency low; the pre-posted recv credit (see k3_rdma_transport.py) means waits almost always hit an already-pending completion */
     nanosleep(&nap, NULL);
   }
 }
@@ -599,7 +599,7 @@ int k3rdma_wait_recv(int timeout_ms) {
       k3_set_error("k3rdma_wait_recv timed out after %d ms", timeout_ms);
       return -1;
     }
-    struct timespec nap = {0, 100000}; /* 100 us */
+    struct timespec nap = {0, 20000}; /* 20 us: keeps hot-path latency low; the pre-posted recv credit (see k3_rdma_transport.py) means waits almost always hit an already-pending completion */
     nanosleep(&nap, NULL);
   }
 }
