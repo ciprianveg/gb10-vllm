@@ -16,6 +16,14 @@ external GPU. The freed memory goes into extra context capacity. The
 remote draft can also be used to speed up tight memory budgets where the
 on-cluster draft can not fit.
 
+## Measured throughput (GLM-5.3 int4int8 @ TP4, game-bench, fresh boots ×2)
+
+| Lane | Runs (tok/s) | Avg |
+|---|---|---|
+| Local MTP | 39.42, 39.66 | 39.5 |
+| Remote RDMA (fixed) | 36.89, 39.08 | 38.5 |
+| Remote TCP | 35.72, 38.23 | 37.0 |
+
 ## Lanes
 
 - **TCP/IP (ZMQ)** — based on
