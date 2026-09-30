@@ -541,34 +541,50 @@ class RemoteDSparkSpeculator(BaseSpeculator):
             # Bump the client-generation signal BEFORE the QP handshake, but
             # ONLY on the first establish of this process (see _gen_bumped):
             # the T1 server polls this key while idle and resets its
-            # rendezvous when it changes. Retries re-publish the fresh QP
-            # info below WITHOUT bumping.
+            # rendezvous when it changes, so a reconnected client never
+            # leaves the server polling a dead queue pair. Retries re-publish
+            # the fresh QP info below WITHOUT bumping.
             if not self._gen_bumped:
                 _store_set(group, _CLIENT_GEN_KEY, str(time.time_ns()))
                 self._gen_bumped = True
-            self._rdma = K3RdmaClient(
-                group,
-                hca=_rdma_hca(),
-                gid_index=_rdma_gid_index(),
-                port=_rdma_port(),
-                max_msg=self._rdma_max_msg(),
-                recv_max=self._rdma_response_max(),
-            )
-            self._rdma.start()
-            logger.info(
-                "Remote K3 %s RDMA side-channel ready (rank 0, hca=%s gid=%d)",
-                self.method,
-                _rdma_hca(),
-                _rdma_gid_index(),
-            )
+            # NOTE: self._rdma is (re)built inside the PING loop below, not
+            # here: a failed PING tears the endpoint down (see
+            # _teardown_on_error), and retrying on the torn-down object
+            # fails with "endpoint is not started" instead of reconnecting.
+            self._rdma = None
             response = None
             for _attempt in range(_PING_RETRIES):
                 try:
+                    if self._rdma is None:
+                        self._rdma = K3RdmaClient(
+                            group,
+                            hca=_rdma_hca(),
+                            gid_index=_rdma_gid_index(),
+                            port=_rdma_port(),
+                            max_msg=self._rdma_max_msg(),
+                            recv_max=self._rdma_response_max(),
+                        )
+                        self._rdma.start()
+                        logger.info(
+                            "Remote K3 %s RDMA side-channel ready (rank 0, hca=%s gid=%d)",
+                            self.method,
+                            _rdma_hca(),
+                            _rdma_gid_index(),
+                        )
                     response = self._rdma_ping(
                         timeout_ms=_HANDSHAKE_PING_TIMEOUT_MS
                     )
                     break
                 except Exception:
+                    # Drop the (possibly torn-down) endpoint so the next
+                    # attempt rebuilds it fresh; a dead object can never
+                    # reconnect.
+                    if self._rdma is not None:
+                        try:
+                            self._rdma.close()
+                        except Exception:  # noqa: BLE001 - best effort
+                            pass
+                        self._rdma = None
                     if _attempt == _PING_RETRIES - 1:
                         raise
                     logger.warning(
